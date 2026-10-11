@@ -28,6 +28,10 @@ ps-reclaim = { version = "^0.1", default-features = false }
 name = "eko-dump"
 path = "tools/eko-dump.rs"
 
+[[example]]
+name = "landing-sp"
+path = "tools/landing-sp.rs"
+
 [features]
 default = []
 # Defines a #[panic_handler] that aborts. Required for the staticlib, built with
