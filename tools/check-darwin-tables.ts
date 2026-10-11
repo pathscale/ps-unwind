@@ -80,7 +80,7 @@ for (let c = 0; c + 16 <= bytes.length; ) {
       if (data & 0x80000000) {
         const p = { o: c + (data & 0x7fffffff) };
         for (let op = bytes[p.o++]; op !== 0; op = bytes[p.o++]) {
-          if ((op >= 0x80 && op <= 0xc3) || op === 0xc5) uleb(p);
+          if ((op >= 0x80 && op <= 0xc3) || op === 0xc5 || op === 0xcb) uleb(p);
           else if (op === 0xc4) { uleb(p); uleb(p); }
         }
         for (let k = 0, n = uleb(p); k < n; k++) { uleb(p); if (uleb(p) >= 4) pads++; }

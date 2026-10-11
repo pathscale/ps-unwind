@@ -11,7 +11,7 @@
 // the function: eko::lookup_arch must return this record, and eko::run gives
 // the unwind state there. It prints the state where it changes:
 //   fn 0xSTART LEN vVERSION
-//   +0xOFF CFA=regN+K: regR=[CFA-S], ...
+//   +0xOFF CFA=regN+K: regR=[CFA-S], ... [args=N]
 // then, for a version 2 record with handlers, every return offset that
 // eko::handler2 finds a row for:
 //   row RET PAD ACTION
@@ -33,6 +33,9 @@ fn state(st: &eko::State, a: &eko::Arch2) -> String {
         let list: Vec<String> = regs.iter().map(|(r, k)| format!("reg{}=[CFA-{}]", r, 8 * *k as u32)).collect();
         s.push_str(": ");
         s.push_str(&list.join(", "));
+    }
+    if st.args_size != 0 {
+        s.push_str(&format!(" args={}", st.args_size));
     }
     s
 }
