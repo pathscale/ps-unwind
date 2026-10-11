@@ -17,11 +17,11 @@ transcripts are in transcripts/.
   built once by a constructor at load and updated on `dlopen`/`dlclose`
   (src/cache.rs). On Linux an EKO version 2 table can replace `.eh_frame` and
   the LSDA of the functions it covers. For a whole std program it is 0.511
-  (aarch64 musl) and 0.539 (x86_64 musl) of their size, and for the
+  (aarch64 musl) and 0.537 (x86_64 musl) of their size, and for the
   landing-pad fixtures 0.521 and 0.573 (`bun tools/eko2.ts`, Z2 and Z1). It
-  gives the same CFA, return address and saved registers as `.eh_frame` at
-  every instruction of 784 of 784 and 686 of 688 functions (E2; the other 2
-  use `DW_CFA_GNU_args_size` and keep `.eh_frame`), so a crash walk can start
+  gives the same CFA, return address, saved registers and
+  `DW_CFA_GNU_args_size` as `.eh_frame` at every instruction of 785 of 785
+  and 690 of 690 functions (E2), so a crash walk can start
   at any instruction, mid-prologue and mid-epilogue included
   (`bun tools/signal-check.ts` SG2, FL3, run on Darwin). These tables are
   generated from each image's `.eh_frame` and LSDA by tools/eko2-gen.ts, and

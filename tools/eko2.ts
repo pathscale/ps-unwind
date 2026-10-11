@@ -25,6 +25,8 @@
 //
 // --plant NAME regenerates the eh_* tables with eko2-gen --plant NAME and
 // reruns E1 and H1, which must fail by name (wrong-cfa: function + offset).
+// --plant wrong-args plants into the E2 whole-image table instead; E2 must
+// fail on x86_64 musl naming the function and offset.
 // Usage: bun tools/eko2.ts [--plant NAME]
 import { mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
@@ -38,6 +40,9 @@ mkdirSync(out, { recursive: true });
 mkdirSync(tmp, { recursive: true });
 const arg = (n: string) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const planted = arg("--plant");
+// wrong-args plants into the whole-image tables of E2 (the eh_* fixtures
+// have no DW_CFA_GNU_args_size); every other plant into the eh_* tables.
+const allPlant = !!planted && planted.startsWith("wrong-args");
 const env: Record<string, string> = { PATH: process.env.PATH!, HOME: process.env.HOME!, TMPDIR: tmp };
 function run(cmd: string[], extra: Record<string, string> = {}) {
   const r = Bun.spawnSync({ cmd, cwd: root, env: { ...env, ...extra }, stdout: "pipe", stderr: "pipe", maxBuffer: 1 << 30, timeout: 600000 });
@@ -103,7 +108,7 @@ for (const t of targets) {
   const p1 = join(out, `pass1-${t.t}`), ps = join(out, `ps2-${t.t}${tag}`), s = join(out, `eko2-${t.t}${tag}.s`);
   must(run([...base, ...t.flags(lib), "-o", p1]), `pass1 ${t.t}`);
   const g = derive(image(p1), "eh_");
-  if (planted) console.log(`plant ${t.t}: ${plant(image(p1).arch, g.fns, planted)}`);
+  if (planted && !allPlant) console.log(`plant ${t.t}: ${plant(image(p1).arch, g.fns, planted)}`);
   writeFileSync(s, emit(image(p1), g.fns));
   must(run([...base, ...t.flags(lib), "--cfg", "eko", "-o", ps], { PS_EKO_S: s }), `ps2 ${t.t}`);
   const img = image(ps);
@@ -121,10 +126,15 @@ for (const t of targets) {
   const hdiff = d.filter((x) => (want.get(x.start) ?? "") !== x.rows.join(",")).map((x) => names.get(x.start) ?? "?");
   const nrows = d.reduce((n, x) => n + x.rows.length, 0);
   report(`H1 ${t.t}`, hdiff.length === 0 ? "PASS" : "FAIL", `${nrows} handler rows found by eko::handler2 at every return offset, ${hdiff.length} functions differ from the LSDA derivation${hdiff.length ? `: ${hdiff.slice(0, 5).join(", ")}` : ""}`);
-  if (planted) continue;
+  if (planted && !allPlant) continue;
   const z = sizes(img, fresh, `eh-${t.t}`);
   report(`Z1 ${t.t}`, "PASS", `eh_* ${z.head}`);
   const all = derive(img, "", true);
+  if (allPlant) {
+    let msg: string;
+    try { msg = plant(img.arch, all.fns, planted!); } catch (e) { msg = (e as Error).message; }
+    console.log(`plant ${t.t}: ${msg}`);
+  }
   const vm = section(img.path, img.macho ? "__eh_frame" : ".eh_frame").addr;
   const allBin = join(out, `all-${t.t}.bin`);
   writeFileSync(allBin, blob(img, all.fns, vm));

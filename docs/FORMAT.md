@@ -247,6 +247,14 @@ emit for code that unwinds:
   slot s: the 8-byte word at CFA - 8 * s, s >= 1.
 - Every other register, and the return address when its column is not
   saved, keeps its value (aarch64: the return address stays in x30).
+- args_size: the DW_CFA_GNU_args_size in effect, bytes of outgoing
+  arguments pushed at this instruction (x86 code that pushes arguments; 0
+  otherwise). REMEMBER and RESTORE_STATE save and restore it with the rest
+  of the state; ENTRY sets it to 0. It does not change the step: it is
+  carried so that a v2 table loses nothing `.eh_frame` has. ps-unwind's
+  `.eh_frame` reader (src/cfi.rs) reads and ignores it too, so both paths
+  behave the same; applying it when a landing pad is installed is open
+  (x86_64 Linux is not run here).
 
 Stepping a frame: CFA from its rule; every saved register loaded from its
 slot; the caller stack pointer is the CFA; the caller pc is the return
@@ -278,7 +286,8 @@ fit in u32.
 | 0xc8 | RESTORE_STATE | | pop it; an empty stack is `BadEkoRecord` |
 | 0xc9 | FRAME | | the frame record both ABIs use: CFA = FP + 16, FP at slot 2, return address at slot 1 |
 | 0xca | FRAME_REGS | | FP at slot 2, return address at slot 1; CFA unchanged |
-| 0xcb-0xdf | reserved | | `BadEkoRecord` |
+| 0xcb | ARGS_SIZE | uleb n | args_size = n bytes (DW_CFA_GNU_args_size); 0 in the entry state |
+| 0xcc-0xdf | reserved | | `BadEkoRecord` |
 | 0xe0-0xff | RESTORE | | register (byte & 0x1f) back to its entry rule |
 
 Prologue and epilogue states are written as they happen: one op group per
@@ -330,12 +339,18 @@ and stops at the first ret at or past the one it looks for.
 ### What version 2 does not express
 
 Rows with a CFA on another register or an expression, a register saved in
-another register, `undefined` or expression rules, DW_CFA_GNU_args_size and
-aarch64 return address signing (DW_CFA_AARCH64_negate_ra_state). A
-function that needs one keeps its `.eh_frame` FDE and LSDA and gets no
-record. Measured on the whole fixture images (tools/eko2.ts E2): 435 of 435
-functions on Darwin arm64, 784 of 784 on aarch64 musl, 686 of 688 on
-x86_64 musl (the 2 use DW_CFA_GNU_args_size).
+another register, `undefined` or expression rules, GNU ops other than
+DW_CFA_GNU_args_size, DW_CFA_GNU_args_size in an FDE that also uses
+DW_CFA_remember_state (no measured function has both; it is refused rather
+than given a meaning), and aarch64 return address signing
+(DW_CFA_AARCH64_negate_ra_state). A function that needs one keeps its
+`.eh_frame` FDE and LSDA and gets no record; tools/eko2-gen.ts lists it by
+name with the reason. Measured on the whole fixture images (tools/eko2.ts
+E2): 435 of 435 functions on Darwin arm64, 785 of 785 on aarch64 musl, 690
+of 690 on x86_64 musl (2 of them with DW_CFA_GNU_args_size, as ARGS_SIZE).
+Planted defect: `bun tools/eko2.ts --plant wrong-args` adds 8 to the first
+nonzero args_size and fails E2 x86_64-unknown-linux-musl naming the
+function and offset.
 
 ### Version 2 checks and size
 
@@ -363,8 +378,8 @@ function that version 2 also replaces), with version 1 for the same rows
 | eh_* functions, aarch64 musl | 23 | 1240 + 728 B | 85.6 B | 1026 B | 44.6 B | 0.521 | 67.3 B |
 | eh_* functions, x86_64 musl | 23 | 1024 + 696 B | 74.8 B | 986 B | 42.9 B | 0.573 | 69.9 B |
 | whole image, Darwin arm64 | 435 | 30404 + 6712 B | 85.3 B | 18489 B | 42.5 B | 0.498 | 50.0 B |
-| whole image, aarch64 musl | 784 | 37184 + 15800 B | 67.6 B | 27066 B | 34.5 B | 0.511 | 34.3 B |
-| whole image, x86_64 musl | 686 | 27300 + 14736 B | 61.3 B | 22672 B | 33.0 B | 0.539 | 37.3 B |
+| whole image, aarch64 musl | 785 | 37236 + 15800 B | 67.6 B | 27100 B | 34.5 B | 0.511 | 34.3 B |
+| whole image, x86_64 musl | 690 | 27608 + 14976 B | 61.7 B | 22847 B | 33.1 B | 0.537 | 37.3 B |
 
 Version 2 is 43 to 56 percent smaller than what it replaces (per function,
 not counting chunk headers: 16 bytes per object). On the whole aarch64 musl

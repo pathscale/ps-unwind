@@ -368,6 +368,9 @@ pub mod op {
     pub const FRAME: u8 = 0xc9;
     /// FP in slot 2 and the return address in slot 1; the CFA rule stays.
     pub const FRAME_REGS: u8 = 0xca;
+    /// uleb n: DW_CFA_GNU_args_size, n bytes of outgoing arguments pushed
+    /// at this offset. Part of the state; it does not change the step.
+    pub const ARGS_SIZE: u8 = 0xcb;
     /// 0xe0..=0xff: register n (DWARF 0..31) back to its entry rule.
     pub const RESTORE: u8 = 0xe0;
 }
@@ -378,17 +381,20 @@ pub const MAX_REMEMBER: usize = 4;
 /// The unwind state at one instruction: CFA = (SP or FP) + 8 * cfa_units;
 /// each saved register is at CFA - 8 * slot; every other register, and the
 /// return address when it is not saved, still holds its caller value.
+/// `args_size` is DW_CFA_GNU_args_size (bytes of pushed outgoing arguments,
+/// x86): carried as .eh_frame carries it; stepping does not use it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct State {
     pub cfa_fp: bool,
     pub cfa_units: u32,
+    pub args_size: u32,
     pub count: usize,
     pub saved: [(u16, u16); MAX_SAVED],
 }
 
 impl State {
     pub const fn entry(a: &Arch2) -> State {
-        let mut s = State { cfa_fp: false, cfa_units: a.entry_cfa, count: 0, saved: [(0, 0); MAX_SAVED] };
+        let mut s = State { cfa_fp: false, cfa_units: a.entry_cfa, args_size: 0, count: 0, saved: [(0, 0); MAX_SAVED] };
         if a.entry_ra_slot != 0 {
             s.saved[0] = (a.ra, a.entry_ra_slot);
             s.count = 1;
@@ -510,6 +516,10 @@ pub fn run(a: &Arch2, program: usize, limit: usize, off: usize) -> Result<(State
             }
             op::ENTRY => {
                 st = State::entry(a);
+                0
+            }
+            op::ARGS_SIZE => {
+                st.args_size = b.uleb()? as u32;
                 0
             }
             op::REMEMBER => {
