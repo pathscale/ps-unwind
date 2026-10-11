@@ -215,11 +215,15 @@ pub struct Row {
     pub cfa: Cfa,
     pub rules: [Rule; COLUMNS],
     pub ra_signed: bool,
+    /// DW_CFA_GNU_args_size: bytes of outgoing arguments pushed at this
+    /// location. Stepping ignores it (the CFA rule already accounts for
+    /// them); installing a landing pad adds it to the stack pointer.
+    pub args_size: usize,
 }
 
 impl Row {
     const fn new() -> Row {
-        Row { cfa: Cfa::RegOffset(0, 0), rules: [Rule::Same; COLUMNS], ra_signed: false }
+        Row { cfa: Cfa::RegOffset(0, 0), rules: [Rule::Same; COLUMNS], ra_signed: false, args_size: 0 }
     }
 }
 
@@ -423,9 +427,9 @@ fn run(
                 }
             }
             0x2e => {
-                // DW_CFA_GNU_args_size: only meaningful for x86 stack-adjusting
-                // callers; LLVM and Cranelift do not emit it for Rust code.
-                let _ = r.uleb()?;
+                // DW_CFA_GNU_args_size. Part of the row, so remember_state and
+                // restore_state carry it, as in LLVM libunwind.
+                row.args_size = r.uleb()? as usize;
             }
             0x2f => {
                 let reg = r.uleb()?;
