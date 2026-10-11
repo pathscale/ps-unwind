@@ -1,6 +1,7 @@
 // Planted-defect runner. Each defect is an exact text substitution in src/.
 // For each: plant, rebuild, run the verifiers (tools/mixed.ts and
-// tools/eh.ts), require at least one named check to fail, revert by
+// tools/eh.ts, or the checks a defect names: the args-skip defects use
+// tools/landing.ts and tools/args-run.ts), require at least one named check to fail, revert by
 // writing back the exact bytes saved before planting, rebuild, and require
 // every verifier to pass again. Before planting anything it refuses, naming
 // the defect and the file, when a file it plants into has uncommitted
@@ -15,7 +16,10 @@ const tmp = join(root, "target/tmp");
 mkdirSync(join(root, "target/defects"), { recursive: true });
 const env = { PATH: process.env.PATH!, HOME: process.env.HOME!, TMPDIR: tmp };
 
-const defects = [
+// Verifiers: tools/mixed.ts and tools/eh.ts unless a defect names its own.
+const DEFAULT = [["bun", "tools/mixed.ts"], ["bun", "tools/eh.ts", "--no-lldb", "--no-linux"]];
+const ARGS = [["bun", "tools/landing.ts"], ["bun", "tools/args-run.ts"]];
+const defects: { name: string; what: string; file: string; from: string; to: string; checks?: string[][] }[] = [
   {
     name: "fde-off-by-one",
     what: "FDE range lookup off by one: the return address itself is used as the lookup key instead of return address minus one",
@@ -44,18 +48,36 @@ const defects = [
     from: "next.x[reg + 1] = unsafe { load::<usize>(loc) };",
     to: "if reg + 1 != 22 { next.x[reg + 1] = unsafe { load::<usize>(loc) }; }",
   },
+  {
+    name: "args-skip-dwarf",
+    what: "landing-pad install skips DW_CFA_GNU_args_size for frames read from .eh_frame (src/cfi.rs path)",
+    file: "src/abi.rs",
+    from: "Kind::Dwarf(fde) => crate::cfi::row_for(&fde, self.lookup_pc())?.args_size,",
+    to: "Kind::Dwarf(_) => 0,",
+    checks: ARGS,
+  },
+  {
+    name: "args-skip-v2",
+    what: "landing-pad install skips DW_CFA_GNU_args_size for EKO version 2 frames (src/eko.rs path)",
+    file: "src/abi.rs",
+    from: "Kind::Eko2 { program, limit } => eko::run(a, program, limit, self.lookup_pc() - self.info.start)?.0.args_size as usize,",
+    to: "Kind::Eko2 { .. } => 0,",
+    checks: ARGS,
+  },
 ];
 
 function sh(cmd: string[]) {
   const r = Bun.spawnSync({ cmd, cwd: root, env, stdout: "pipe", stderr: "pipe", timeout: 600000 });
   return { code: r.exitCode, text: r.stdout.toString() + r.stderr.toString() };
 }
-function verifiers() {
-  const m = sh(["bun", "tools/mixed.ts"]);
-  const s = sh(["bun", "tools/eh.ts", "--no-lldb", "--no-linux"]);
-  return { m, s, pass: m.code === 0 && s.code === 0 };
+function verifiers(checks: string[][]) {
+  const runs = checks.map((c) => ({ cmd: c.slice(1).join(" "), ...sh(c) }));
+  return { runs, pass: runs.every((r) => r.code === 0) };
 }
-const summary = (t: string) => t.split("\n").filter((l) => /^(FAIL|eh: )/.test(l)).map((l) => l.slice(0, 200)).join("\n");
+// mixed.ts output in full; for the others the FAIL lines with their
+// indented detail and the summary line.
+const summary = (cmd: string, t: string) =>
+  cmd === "tools/mixed.ts" ? t : t.split("\n").filter((l) => /^(FAIL|    |[a-z0-9-]+: \d+ pass)/.test(l)).map((l) => l.slice(0, 300)).join("\n");
 
 const pick = process.argv.slice(2);
 const chosen = defects.filter((d) => pick.length === 0 || pick.includes(d.name));
@@ -101,15 +123,15 @@ for (const d of chosen) {
   if (build.code !== 0) {
     log += `build failed:\n${build.text}\n`;
   } else {
-    const v = verifiers();
+    const v = verifiers(d.checks ?? DEFAULT);
     caught = !v.pass;
-    log += `-- tools/mixed.ts (exit ${v.m.code})\n${v.m.text}\n-- tools/eh.ts (exit ${v.s.code})\n${summary(v.s.text)}\n`;
+    for (const r of v.runs) log += `-- ${r.cmd} (exit ${r.code})\n${summary(r.cmd.split(" ")[0], r.text)}\n`;
   }
   writeFileSync(path, saved);
   planted = null;
   const same = readFileSync(path).equals(saved);
   const rebuilt = sh(["./tools/build.sh"]);
-  const after = rebuilt.code === 0 ? verifiers() : null;
+  const after = rebuilt.code === 0 ? verifiers(d.checks ?? DEFAULT) : null;
   const restored = same && !!after && after.pass;
   log += `-- reverted by writing back the ${saved.length} saved bytes of ${d.file} (identical: ${same}); verifiers after revert: ${after && after.pass ? "PASS" : "FAIL"}\n`;
   log += `RESULT ${d.name}: ${caught ? "caught" : "NOT CAUGHT"}, ${restored ? "clean after revert" : "NOT CLEAN after revert"}\n`;
