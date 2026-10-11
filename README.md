@@ -6,7 +6,7 @@ Rust programs. It exports the 14
 and the EKO compact table (docs/FORMAT.md), and needs nothing from the platform but `libc`.
 
 - docs/DESIGN.md: how it works, shortcuts and their proofs, open problems, link lines
-- docs/FORMAT.md: the EKO compact unwind table, version 1
+- docs/FORMAT.md: the EKO compact unwind table, versions 1 and 2
 - docs/TARGETS.md: what runs, what only compiles
 
 ## Build
@@ -53,8 +53,8 @@ unsigned ps_unwind_last_failure(uintptr_t *pc);   /* pc may be NULL */
 - Why it stopped: `ps_unwind_last_failure(&pc)` returns the named failure
   code (src/failure.rs) and the pc it stopped at, 0 if none was recorded. A
   null `uc` records `ZeroPc` (3). In signal context a pc whose image is not
-  in the cache records `SignalContextMiss` (26); a frame an EKO call-site
-  record cannot describe records `EkoAsyncFrame` (25); unreadable tables
+  in the cache records `SignalContextMiss` (26); a frame an EKO version 1
+  call-site record cannot describe records `EkoAsyncFrame` (25); unreadable tables
   record `NoUnwindInfo`, `FdeRangeMiss`, `BadCieFde` and the rest of the
   list. The code is process-global and is not cleared when a walk starts, so
   a concurrent walk on another thread can overwrite it.
@@ -113,7 +113,11 @@ bun tools/defects.ts                # planted defects must each fail a named che
 bun tools/sizes.ts lib
 bun tools/check-linux-link.ts       # Linux import set by nm, musl link, glibc NEEDED
 bun tools/cache-check.ts            # image cache: constructor, dlopen, dlclose, grace period
-bun tools/signal-check.ts           # _sigtramp, frameless frames, EkoAsyncFrame refusal
+bun tools/eh.ts --format 2          # the same suite with EKO version 2 tables (plants: wrong-pad, no-restore)
+bun tools/eko2.ts                   # v2 tables equal .eh_frame at every instruction (E1, E2), handler rows (H1), sizes (Z1, Z2)
+bun tools/eko2.ts --plant wrong-cfa # must fail E1 naming the function and the instruction offset
+bun tools/signal-check.ts           # _sigtramp, frameless frames, v1 EkoAsyncFrame refusal, v2 prologue and epilogue faults
+bun tools/signal-check.ts --plant drop-state # must fail SG2 naming the fault offset
 bun tools/check-darwin-tables.ts target/darwin-tables/both --build   # EKO supplements, never replaces
 bun tools/check-darwin-tables.ts target/darwin-tables/plain --no-eko # shipped Darwin image: no EKO table (D3)
 ```

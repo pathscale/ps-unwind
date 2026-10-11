@@ -1,0 +1,23 @@
+PASS G1 build: pass1, sys and ps built with the public rustc
+PASS G5 binding: ps defines _Unwind_RaiseException in __TEXT,__text: true; sys binds it from libSystem: true
+PASS G2 eko-records: 23 records, rows: 34 cleanup, 40 catch, 24 terminate; 984 bytes (version 2); skipped: none
+NOT RUN G3 eko-roundtrip: plant run
+PASS G4 darwin-tables: check-darwin-tables: 23 EKO functions, PASS
+plant no-restore: highest callee-saved register never saved in 18 functions
+PASS C01 pass-through: identical, 73 bytes, exit 0
+PASS C02 unwind-drops: identical, 129 bytes, exit 0
+PASS C03 two-sites: identical, 129 bytes, exit 0
+PASS C04 catch-local: identical, 172 bytes, exit 0
+PASS C05 rethrow: identical, 130 bytes, exit 0
+PASS C06 nounwind: identical, 124 bytes, signal SIGABRT
+PASS C07 cleanup-abort: identical, 294 bytes, signal SIGABRT
+PASS C08 drop-catches: identical, 176 bytes, exit 0
+PASS C09 enum-shapes: identical, 256 bytes, exit 0
+PASS C10 drop-flags: identical, 190 bytes, exit 0
+PASS C11 shared: identical, 149 bytes, exit 0
+PASS C12 niche-some: identical, 97 bytes, exit 0
+PASS C13 niche-none: identical, 98 bytes, exit 0
+FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "checksum 0x3014900e54b480ae"; sys exit 0, ps exit 0
+PASS C15 uncaught: identical, 105 bytes, exit 101
+PASS C16 bt-run: identical, 177 bytes, exit 0
+eh: 19 pass, 1 fail, 1 not run, plant no-restore; failed: C14 callee-saved
