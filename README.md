@@ -20,8 +20,8 @@ transcripts are in transcripts/.
   (aarch64 musl) and 0.537 (x86_64 musl) of their size, and for the
   landing-pad fixtures 0.521 and 0.573 (`bun tools/eko2.ts`, Z2 and Z1). It
   gives the same CFA, return address, saved registers and
-  `DW_CFA_GNU_args_size` as `.eh_frame` at every instruction of 785 of 785
-  and 690 of 690 functions (E2), so a crash walk can start
+  `DW_CFA_GNU_args_size` as `.eh_frame` at every instruction of 787 of 787
+  and 692 of 692 functions (E2), so a crash walk can start
   at any instruction, mid-prologue and mid-epilogue included
   (`bun tools/signal-check.ts` SG2, FL3, run on Darwin). These tables are
   generated from each image's `.eh_frame` and LSDA by tools/eko2-gen.ts, and
@@ -204,6 +204,8 @@ bun tools/eh.ts                     # landing-pad fixtures, EKO from tools/eko-g
 bun tools/eh.ts --plant wrong-pad   # planted EKO defects must fail by name (also: no-restore)
 bun tools/mixed.ts                  # EKO + DWARF 0x9b + libSystem + Rust frames, lldb bt
 bun tools/defects.ts                # planted defects must each fail a named check
+bun tools/landing.ts                # x86_64 musl, decoded: args_size popped at every landing-pad install, both readers
+bun tools/args-run.ts               # aarch64 Darwin, run: args_size fixture under system, .eh_frame and v2 paths
 bun tools/sizes.ts lib
 bun tools/check-linux-link.ts       # Linux import set by nm, musl link, glibc NEEDED
 bun tools/cache-check.ts            # image cache: constructor, dlopen, dlclose, grace period

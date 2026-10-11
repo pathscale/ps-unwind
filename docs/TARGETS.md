@@ -2,7 +2,7 @@
 
 | Target | Tables | Built | Run here |
 |---|---|---|---|
-| aarch64-apple-darwin | `__eko_unwind`, `__unwind_info` (regular and compressed pages, FRAME, FRAMELESS, DWARF mode), `__eh_frame` (z P L R S B G, pointer encodings incl. 0x9b), `__gcc_except_tab` via std personality | yes | yes: tools/eh.ts (also --format 2), tools/mixed.ts, tools/defects.ts, tools/check-nostd.ts, tools/signal-check.ts, tools/cache-check.ts, tools/eko2.ts |
+| aarch64-apple-darwin | `__eko_unwind`, `__unwind_info` (regular and compressed pages, FRAME, FRAMELESS, DWARF mode), `__eh_frame` (z P L R S B G, pointer encodings incl. 0x9b), `__gcc_except_tab` via std personality | yes | yes: tools/eh.ts (also --format 2), tools/mixed.ts, tools/defects.ts, tools/check-nostd.ts, tools/signal-check.ts, tools/cache-check.ts, tools/eko2.ts, tools/args-run.ts |
 | aarch64-unknown-linux-gnu | EKO notes, `.eh_frame_hdr` (0x3b table), `.eh_frame` | yes | no, compiled only |
 | aarch64-unknown-linux-musl | same | yes | no, compiled only |
 | x86_64-unknown-linux-gnu | same | yes | no, compiled only |
@@ -14,7 +14,11 @@
 libc imports, exactly the exports check-nostd R5 allows: the 14 `_Unwind_*`
 and the 5 `ps_unwind_*` functions); see transcripts/cache-nostd-linux.txt.
 The EKO version 2 tables of the musl images are generated and decoded at
-every instruction by tools/eko2.ts (E1, E2), not run.
+every instruction by tools/eko2.ts (E1, E2), not run. The
+DW_CFA_GNU_args_size landing-pad adjustment on x86_64 musl is checked the
+same way, decoded and not run (tools/landing.ts: every landing-pad install
+site, both readers); it is executed only on aarch64 Darwin
+(tools/args-run.ts, a hand-written fixture).
 A std program links with it on musl (tools/check-linux-link.ts L2), but
 nothing for Linux has been executed, so the ELF finder and image cache, the x86_64 register layer, the
 x86_64 trampolines and restore, and the Linux `_Unwind_GetCFA` are unverified.
