@@ -192,7 +192,7 @@ terminate rows (transcripts/sizes.txt):
 
 | image | `__eh_frame` + `__gcc_except_tab` | `__unwind_info` | EKO v1 | Linux ratio | Darwin growth |
 |---|---|---|---|---|---|
-| target/mixed/mixed | 34512 B | 5808 B | 17284 B | 0.501 | +17284 B, +42.9% |
+| target/mixed/mixed | 34512 B | 5816 B | 17364 B | 0.503 | +17364 B, +43.1% |
 
 The Linux ratio is measured on the Mach-O tables as a proxy; no ELF image
 is measured here.
