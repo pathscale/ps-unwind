@@ -378,7 +378,7 @@ pub unsafe extern "C" fn ps_unwind_last_failure(pc: *mut usize) -> u32 {
 }
 
 /// Cache counters for verifiers: entries, publishes, snapshots freed,
-/// snapshots pending, readers now, signal depth. Writes six words to `out`.
+/// snapshots pending, 1 once the reader slot is registered, signal depth. Writes six words to `out`.
 /// Does not build the cache (so it shows what the constructor did). Takes
 /// the writer lock: never from signal context.
 #[unsafe(no_mangle)]

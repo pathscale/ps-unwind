@@ -1,21 +1,22 @@
 //! Lock-free image cache: which loaded image holds a pc, and where its
 //! unwind tables are. docs/DESIGN.md, "Image cache".
 //!
-//! Readers (every unwind step) do one SeqCst increment of READERS, one
-//! SeqCst load of CURRENT, a binary search, a copy of the entry, and a
-//! Release decrement. They allocate nothing, take no lock and make no call.
+//! Readers (every unwind step) pin the ps-reclaim Domain through one
+//! ReaderSlot registered by the constructor (Domain::pin_reader: at most
+//! MAX_NESTED_PINS compare-and-swaps or one fetch_add, and a fence), load
+//! CURRENT, binary search, copy the entry and drop the guard (one store).
+//! They allocate nothing, take no lock, touch no thread-local storage and
+//! make no call, so a crash handler on any thread, or one that interrupted
+//! a lookup on its own thread, can read the cache.
 //!
 //! Writers (dyld add/remove callbacks on Darwin; the init snapshot and the
 //! refresh on a miss outside signal context on Linux) hold WRITER, build a
-//! new sorted array, swap it in, and retire the old one into a ps-reclaim
-//! Domain. Retired snapshots are freed only when a writer, after its swap,
-//! sees READERS == 0: any reader that could still hold an old pointer loaded
-//! it while counted, and a reader counted later loads the new pointer.
+//! new sorted array, swap it in, and retire the old one into the Domain.
+//! Domain::advance frees a retired snapshot only once no reader pinned
+//! before the swap is still pinned.
 //!
-//! Readers do not pin ps-reclaim: its first pin on a thread registers that
-//! thread, which takes the registry lock (a spin lock without std) and
-//! allocates. A crash handler on a thread that never pinned, or that was
-//! interrupted inside registration, would allocate or spin forever.
+//! Readers never use Domain::pin: its first pin on a thread registers that
+//! thread, which takes the registry lock and allocates (check-nostd R6).
 
 extern crate alloc;
 
@@ -25,7 +26,7 @@ use core::cell::UnsafeCell;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
 
-use ps_reclaim::Domain;
+use ps_reclaim::{Domain, ReaderSlot};
 
 use crate::failure::{Failure, Result};
 use crate::find::{self, Entry};
@@ -35,7 +36,10 @@ struct Snapshot {
 }
 
 static CURRENT: AtomicPtr<Snapshot> = AtomicPtr::new(ptr::null_mut());
-static READERS: AtomicUsize = AtomicUsize::new(0);
+/// The one reader registration every lookup pins through, from any thread
+/// or signal handler. Registered (may lock and allocate) before DOMAIN is
+/// published, never in signal context.
+static SLOT: AtomicPtr<ReaderSlot> = AtomicPtr::new(ptr::null_mut());
 static SIGNAL: AtomicUsize = AtomicUsize::new(0);
 static WRITER: AtomicBool = AtomicBool::new(false);
 static DOMAIN: AtomicPtr<Domain> = AtomicPtr::new(ptr::null_mut());
@@ -75,11 +79,16 @@ pub fn signal_leave() {
 /// The entry whose [start, end) holds `pc`, copied out of the current
 /// snapshot. Lock-free, allocation-free, async-signal-safe.
 pub fn lookup(pc: usize) -> Option<Entry> {
-    READERS.fetch_add(1, Ordering::SeqCst);
+    // DOMAIN is stored after SLOT and before the first publish, so a null
+    // DOMAIN means no snapshot exists yet.
+    let d = DOMAIN.load(Ordering::Acquire);
+    if d.is_null() {
+        return None;
+    }
+    let (domain, slot) = unsafe { (&*d, &*SLOT.load(Ordering::Acquire)) };
+    let _pin = domain.pin_reader(slot);
     let p = CURRENT.load(Ordering::SeqCst);
-    let found = if p.is_null() { None } else { search(&unsafe { &*p }.entries, pc) };
-    READERS.fetch_sub(1, Ordering::Release);
-    found
+    if p.is_null() { None } else { search(&unsafe { &*p }.entries, pc) }
 }
 
 fn search(entries: &[Entry], pc: usize) -> Option<Entry> {
@@ -104,7 +113,8 @@ pub fn ensure_ready() -> Result<()> {
         {
             let _w = lock();
             if DOMAIN.load(Ordering::Relaxed).is_null() {
-                DOMAIN.store(Box::into_raw(Box::new(Domain::new())), Ordering::Relaxed);
+                SLOT.store(Box::into_raw(Box::new(ReaderSlot::register())), Ordering::Release);
+                DOMAIN.store(Box::into_raw(Box::new(Domain::new())), Ordering::Release);
             }
             unsafe { *STAGING.0.get() = Some(Vec::with_capacity(64)) };
         }
@@ -185,12 +195,9 @@ fn publish(mut v: Vec<Entry>) {
     collect(domain);
 }
 
-/// Free retired snapshots if no reader is inside lookup now. Called with
-/// WRITER held, after a swap.
+/// Free retired snapshots no pinned reader can still hold. Called with
+/// WRITER held, after a swap; advance skips what a pin still protects.
 fn collect(domain: &Domain) {
-    if READERS.load(Ordering::SeqCst) != 0 {
-        return;
-    }
     for _ in 0..4 {
         if domain.pending() == 0 {
             break;
@@ -200,7 +207,7 @@ fn collect(domain: &Domain) {
 }
 
 /// entries, publishes, retired snapshots freed, retired snapshots pending,
-/// readers inside lookup now, signal depth. Outside signal context only
+/// 1 once the reader slot is registered, signal depth. Outside signal context only
 /// (pending takes the ps-reclaim garbage lock).
 pub fn stats() -> [usize; 6] {
     let _w = lock();
@@ -213,7 +220,7 @@ pub fn stats() -> [usize; 6] {
         PUBLISHED.load(Ordering::Relaxed),
         FREED.load(Ordering::Relaxed),
         pending,
-        READERS.load(Ordering::SeqCst),
+        !SLOT.load(Ordering::Acquire).is_null() as usize,
         SIGNAL.load(Ordering::SeqCst),
     ]
 }

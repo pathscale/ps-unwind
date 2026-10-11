@@ -19,9 +19,9 @@ crate-type = ["rlib"]
 
 [dependencies]
 libc = { version = "^0", default-features = false }
-# no_std: 0.1.4 with default-features = false does not enable its own spin
-# and libc dependencies, so they are named here (spin-garbage pulls spin).
-ps-reclaim = { version = "^0.1", default-features = false, features = ["spin-garbage", "libc"] }
+# no_std with default-features = false alone (0.1.5 and later). The image
+# cache pins through ReaderSlot / Domain::pin_reader (0.1.5).
+ps-reclaim = { version = "^0.1", default-features = false }
 
 # tools/eko-dump.rs: dumps EKO tables through the reader for tools/eko2.ts.
 [[example]]

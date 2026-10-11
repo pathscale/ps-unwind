@@ -1,16 +1,28 @@
 $ bun tools/check-nostd.ts x86_64-unknown-linux-gnu
+nm -a target/x86_64-unknown-linux-gnu/release/libps_unwind.a: 3942 lines, 0 std symbols
+nm -a target/dist/x86_64-unknown-linux-gnu/libps_unwind.a: 247 lines, 0 std symbols
 imports: abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
-exports: 18
+exports: 19
 check-nostd: PASS
+exit 0
 $ bun tools/check-nostd.ts aarch64-unknown-linux-gnu
-imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
-exports: 18
+nm -a target/aarch64-unknown-linux-gnu/release/libps_unwind.a: 9007 lines, 0 std symbols
+nm -a target/dist/aarch64-unknown-linux-gnu/libps_unwind.a: 400 lines, 0 std symbols
+imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove memset posix_memalign write
+exports: 19
 check-nostd: PASS
+exit 0
 $ bun tools/check-nostd.ts x86_64-unknown-linux-musl
+nm -a target/x86_64-unknown-linux-musl/release/libps_unwind.a: 3975 lines, 0 std symbols
+nm -a target/dist/x86_64-unknown-linux-musl/libps_unwind.a: 247 lines, 0 std symbols
 imports: abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
-exports: 18
+exports: 19
 check-nostd: PASS
+exit 0
 $ bun tools/check-nostd.ts aarch64-unknown-linux-musl
-imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
-exports: 18
+nm -a target/aarch64-unknown-linux-musl/release/libps_unwind.a: 9314 lines, 0 std symbols
+nm -a target/dist/aarch64-unknown-linux-musl/libps_unwind.a: 400 lines, 0 std symbols
+imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove memset posix_memalign write
+exports: 19
 check-nostd: PASS
+exit 0
