@@ -8,8 +8,11 @@ pub enum Kind {
     Compact(u32),
     /// A DWARF FDE (directly, or named by a compact DWARF-mode entry).
     Dwarf(Fde),
-    /// An EKO record frame word.
+    /// An EKO version 1 record frame word.
     Eko(u32),
+    /// An EKO version 2 record: its state program (0 = none) and the end of
+    /// its chunk.
+    Eko2 { program: usize, limit: usize },
     /// aarch64 Linux `__kernel_rt_sigreturn`, recognised by its code: the
     /// caller state is the ucontext of the rt_sigframe at sp.
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]

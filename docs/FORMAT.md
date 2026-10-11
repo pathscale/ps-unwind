@@ -1,13 +1,20 @@
-# EKO compact unwind table, version 1
+# EKO compact unwind table, versions 1 and 2
 
-A compact unwind and landing-pad table a compiler can emit for the functions it compiles.
+Version 1 is specified first; "Version 2" below describes what changes. A
+compact unwind and landing-pad table a compiler can emit for the functions it compiles.
 ps-unwind reads it (src/eko.rs); no other unwinder does.
 
 What it may replace depends on the platform:
 
 - Linux (gnu, musl): ps-unwind is the only unwinder in the process (checked
   by tools/check-linux-link.ts), so the compiler MAY drop `.eh_frame` CFI and
-  the LSDA for EKO functions and emit only this table.
+  the LSDA for EKO functions and emit only this table, in version 2. A
+  version 1 table describes call sites only (an interrupted FP or SP frame
+  is refused with `EkoAsyncFrame`), so dropping `.eh_frame` with it would
+  lose crash backtraces from a signal in a prologue or epilogue; a version
+  2 table describes every instruction. A compiler drops `.eh_frame` for a
+  function only when its v2 state equals that `.eh_frame` at every
+  instruction (tools/eko2.ts E1 is that check).
 - Darwin: the table is NOT emitted. The compiler MUST keep the standard
   `__unwind_info` / `__eh_frame` entries and the LSDA for every EKO function:
   libSystem maps its own libunwind and, with the two-level namespace, its
@@ -45,7 +52,7 @@ One chunk per compiled object, 4-byte aligned.
 | 0 | u32 | magic | `0x57554B45` (`EKUW` in memory) |
 | 4 | u8 | version | 1 |
 | 5 | u8 | arch | 1 = aarch64, 2 = x86_64; must match the process |
-| 6 | u16 | flags | bit 0 = handlers follow Rust personality rules; required in v1. Other bits 0 |
+| 6 | u16 | flags | bit 0 = handlers follow Rust personality rules; required in v1 and v2. Other bits 0 |
 | 8 | u32 | count | number of function records |
 | 12 | u32 | size | whole chunk in bytes, multiple of 4, at least 16 + 16 * count |
 | 16 | 16 * count | records | sorted by start, non-overlapping |
@@ -54,7 +61,7 @@ One chunk per compiled object, 4-byte aligned.
 A reader that sees a nonzero word that is not a valid header stops with
 `BadEkoHeader`; it does not skip ahead and guess.
 
-## Function record (16 bytes)
+## Function record (16 bytes, version 1)
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
@@ -144,7 +151,9 @@ register as unwound. This is what rust_eh_personality sets.
 
 The version byte changes for any layout or meaning change. A reader rejects
 versions it does not know (`BadEkoHeader`) rather than reading them as
-version 1. Unknown flag bits are rejected the same way. arch is checked so
+version 1 or 2. Chunks of both versions may sit in one section; each is
+read by its own rules, and the version 1 rules, results and refusals are
+unchanged by version 2. Unknown flag bits are rejected the same way. arch is checked so
 that a chunk for the wrong architecture is never used.
 
 ## Size
@@ -187,3 +196,178 @@ terminate rows (transcripts/sizes.txt):
 
 The Linux ratio is measured on the Mach-O tables as a proxy; no ELF image
 is measured here.
+
+## Version 2: the unwind state at every instruction
+
+Version 2 keeps the chunk header (version byte 2, same magic, arch, flags,
+count and size rules), the section and note containers, the PC lookup and
+the meaning of every handler row. It replaces the 16-byte record and its
+frame word with a 12-byte record and a state program that gives the unwind
+state at every instruction of the function, so a frame interrupted anywhere
+(prologue, body, epilogue, a frameless leaf) is stepped exactly and
+`EkoAsyncFrame` does not exist for version 2 records. Nothing in it is
+aarch64-only: registers are DWARF numbers, and the per-architecture part is
+the table "Architecture" below.
+
+### Record (12 bytes)
+
+| Offset | Size | Field | Meaning |
+|---|---|---|---|
+| 0 | i32 | start | function start minus the address of this field (relocated as in v1) |
+| 4 | u32 | length | function length; the record covers [start, start + length) |
+| 8 | u32 | data | bits 0-30: offset of the description from the chunk start, 0 = none; bit 31: the description ends with a handler table |
+
+Records are sorted by start and do not overlap; size is at least
+16 + 12 * count. data = 0 means the entry state holds at every instruction
+and there are no landing pads: a frameless leaf that never moves the stack
+pointer costs its 12-byte record and nothing else. Bit 31 with offset 0 is
+`BadEkoRecord`. Descriptions are byte-aligned and may be in any order; the
+chunk is zero-padded to a multiple of 4.
+
+A description is a state program, ended by END, then, when bit 31 is set,
+the handler table.
+
+### Architecture
+
+| arch | code unit | SP | FP | return address column | entry state |
+|---|---|---|---|---|---|
+| 1 aarch64 | 4 bytes | 31 | 29 | 30 (x30) | CFA = SP + 0; the return address is in x30; nothing saved |
+| 2 x86_64 | 1 byte | 7 | 6 | 16 | CFA = SP + 8; the return address in slot 1; nothing else saved |
+
+These are the DWARF numbers and the initial CFI rows of both ABIs. A new
+architecture is a new row: the program encoding does not change.
+
+### State
+
+A state is the CFI row of one instruction, restricted to what compilers
+emit for code that unwinds:
+
+- CFA = SP + 8 * n or FP + 8 * n.
+- Each saved register (DWARF number, return address column included) is at
+  slot s: the 8-byte word at CFA - 8 * s, s >= 1.
+- Every other register, and the return address when its column is not
+  saved, keeps its value (aarch64: the return address stays in x30).
+
+Stepping a frame: CFA from its rule; every saved register loaded from its
+slot; the caller stack pointer is the CFA; the caller pc is the return
+address (high bits stripped on aarch64). This is the CFI step for the same
+row (src/cfi.rs apply).
+
+### State program
+
+The program starts at offset 0 of the function in the entry state. Ops
+change the state at the current offset; ADVANCE moves the offset forward.
+The state at offset X is the state after the last op before the ADVANCE that
+moves past X (DWARF CFA semantics). ULEB operands are at most 5 bytes and
+fit in u32.
+
+| byte | op | operands | effect |
+|---|---|---|---|
+| 0x00 | END | | end of the program |
+| 0x01-0x3f | ADVANCE | | offset += n code units, n = byte |
+| 0x40-0x7f | CFA_OFFSET | | CFA register unchanged, CFA = reg + 8 * (byte & 0x3f) |
+| 0x80-0xbf | SAVE | uleb slot | register (byte & 0x3f) saved at slot |
+| 0xc0 | CFA_SP | uleb n | CFA = SP + 8 * n |
+| 0xc1 | CFA_FP | uleb n | CFA = FP + 8 * n |
+| 0xc2 | CFA_OFFSET_LONG | uleb n | CFA = reg + 8 * n |
+| 0xc3 | ADVANCE_LONG | uleb n | offset += n code units |
+| 0xc4 | SAVE_LONG | uleb reg, uleb slot | register reg saved at slot |
+| 0xc5 | RESTORE_LONG | uleb reg | reg back to its entry rule |
+| 0xc6 | ENTRY | | the whole state back to the entry state |
+| 0xc7 | REMEMBER | | push the whole state (CFA included); at most 4 deep, else `RememberStackOverflow` |
+| 0xc8 | RESTORE_STATE | | pop it; an empty stack is `BadEkoRecord` |
+| 0xc9 | FRAME | | the frame record both ABIs use: CFA = FP + 16, FP at slot 2, return address at slot 1 |
+| 0xca | FRAME_REGS | | FP at slot 2, return address at slot 1; CFA unchanged |
+| 0xcb-0xdf | reserved | | `BadEkoRecord` |
+| 0xe0-0xff | RESTORE | | register (byte & 0x1f) back to its entry rule |
+
+Prologue and epilogue states are written as they happen: one op group per
+instruction that changes the state, after each callee-saved store and
+before each restore. Example: sg_v2_leaf of fixtures/signal/sig.s, a
+frameless aarch64 function that saves x19 (the udf instructions are the
+fault points of tools/signal-check.ts FL3). Its program is 10 bytes:
+
+    +0x00 udf #32                           entry state
+    +0x04 sub sp, sp, #32
+    +0x08 udf #33                 02 44     ADVANCE 2, CFA_OFFSET 4 (CFA = SP + 32)
+    +0x0c str x19, [sp, #16]
+    +0x10 udf #34                 02 93 02  ADVANCE 2, SAVE x19 slot 2
+    +0x14 mov x19, #0x3333
+    +0x18 udf #35
+    +0x1c ldr x19, [sp, #16]
+    +0x20 udf #36                 04 f3     ADVANCE 4, RESTORE x19
+    +0x24 add sp, sp, #32
+    +0x28 udf #37                 02 40     ADVANCE 2, CFA_OFFSET 0
+    +0x2c ret                     00        END
+
+Each op group takes effect at the instruction after the one that changed
+the state. sg_v2_fp (frame record, x19, x20 and d8 saved one store at a
+time, an epilogue restoring one load at a time, then the body state again
+after ret) is 33 bytes: 02 46 9d 06 9e 05 02 93 03 94 04 02 c4 48 02 02 c1
+06 06 c7 c0 06 02 c5 48 02 f3 f4 02 c6 02 c8 00.
+
+An epilogue in the middle of a function is REMEMBER before it and
+RESTORE_STATE after its return, as in CFI. A function whose state never
+leaves the entry state has no program (data = 0, or END alone when it has
+a handler table).
+
+### Handler table (version 2)
+
+Rows have the meaning of the version 1 rows (ret, pad, action; actions 0
+cleanup, 1 catch, 2 terminate; a call with no row continues; landing pad
+registers as in version 1), in a smaller encoding:
+
+| Field | Encoding |
+|---|---|
+| rows | uleb |
+| per row | uleb (ret - previous ret, the first relative to 0), uleb (pad * 4 + action) |
+
+Rows are sorted by ret, so every delta is at least 1; a zero delta is a
+second row for one return address, `EkoAmbiguousCallSite`. An invalid
+action and pad pair is `BadEkoRecord`. The lookup reads the rows in order
+and stops at the first ret at or past the one it looks for.
+
+### What version 2 does not express
+
+Rows with a CFA on another register or an expression, a register saved in
+another register, `undefined` or expression rules, DW_CFA_GNU_args_size and
+aarch64 return address signing (DW_CFA_AARCH64_negate_ra_state). A
+function that needs one keeps its `.eh_frame` FDE and LSDA and gets no
+record. Measured on the whole fixture images (tools/eko2.ts E2): 435 of 435
+functions on Darwin arm64, 784 of 784 on aarch64 musl, 686 of 688 on
+x86_64 musl (the 2 use DW_CFA_GNU_args_size).
+
+### Version 2 checks and size
+
+tools/eko2.ts generates v2 tables with tools/eko2-gen.ts from the
+`.eh_frame` and LSDA of fixtures/eh/eh.rs built by the public rustc for
+aarch64-apple-darwin, aarch64-unknown-linux-musl and
+x86_64-unknown-linux-musl, links them into the image, reads them back
+through the reader (tools/eko-dump.rs: eko::lookup_arch, eko::run and
+eko::handler2) and compares the state with the `.eh_frame` of the same
+function at every instruction (E1), the handler rows with the LSDA (H1),
+and, table-only, every FDE of the whole image (E2). The Linux images are
+decoded from the file and never run. tools/signal-check.ts SG2 and FL3
+fault at every prologue and epilogue step of a v2 function on Darwin and
+check the caller frame against the hardware state at entry; tools/eh.ts
+--format 2 runs the landing-pad suite with v2 tables.
+
+Bytes per function, version 2 against the `.eh_frame` FDE and the LSDA it
+replaces (CIEs not counted; on Linux `.eh_frame_hdr` adds 8 more bytes per
+function that version 2 also replaces), with version 1 for the same rows
+(call sites only, so it cannot replace `.eh_frame`):
+
+| image | functions | FDE + LSDA | per fn | v2 | per fn | v2 / (FDE + LSDA) | v1 per fn |
+|---|---|---|---|---|---|---|---|
+| eh_* functions, Darwin arm64 | 23 | 1480 + 696 B | 94.6 B | 967 B | 42.0 B | 0.444 | 69.9 B |
+| eh_* functions, aarch64 musl | 23 | 1240 + 728 B | 85.6 B | 1026 B | 44.6 B | 0.521 | 67.3 B |
+| eh_* functions, x86_64 musl | 23 | 1024 + 696 B | 74.8 B | 986 B | 42.9 B | 0.573 | 69.9 B |
+| whole image, Darwin arm64 | 435 | 30404 + 6712 B | 85.3 B | 18489 B | 42.5 B | 0.498 | 50.0 B |
+| whole image, aarch64 musl | 784 | 37184 + 15800 B | 67.6 B | 27066 B | 34.5 B | 0.511 | 34.3 B |
+| whole image, x86_64 musl | 686 | 27300 + 14736 B | 61.3 B | 22672 B | 33.0 B | 0.539 | 37.3 B |
+
+Version 2 is 43 to 56 percent smaller than what it replaces (per function,
+not counting chunk headers: 16 bytes per object). On the whole aarch64 musl
+image it is 0.2 bytes per function larger than version 1 for the same rows,
+because version 1 says nothing about prologues and epilogues. Darwin is
+unchanged: no table is emitted there (D3), whatever its version.

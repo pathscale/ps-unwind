@@ -97,6 +97,7 @@ impl Cursor {
                 crate::cfi::apply(&row, &self.regs, fde.cie.ra_reg)?
             }
             Kind::Eko(frame) => eko::step(frame, &self.regs, async_frame)?,
+            Kind::Eko2 { program, limit } => eko::step2(program, limit, self.lookup_pc() - self.info.start, &self.regs)?,
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
             Kind::LinuxSigreturn => unsafe { self.regs.sigreturn_caller() },
         };

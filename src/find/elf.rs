@@ -22,7 +22,7 @@ use crate::cache;
 use crate::cfi;
 use crate::eko;
 use crate::failure::{Failure, Result};
-use crate::frame::{FrameInfo, Kind};
+use crate::frame::FrameInfo;
 use crate::mem::{load, Bases, Reader};
 
 const PT_LOAD: u32 = 1;
@@ -229,7 +229,7 @@ pub fn find(target: usize) -> Result<FrameInfo> {
             personality: 0,
             eko_handlers: r.handlers,
             signal: false,
-            kind: Kind::Eko(r.frame),
+            kind: r.kind(),
             text_base: s.text_start,
             data_base: 0,
         });

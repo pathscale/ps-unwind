@@ -162,7 +162,7 @@ pub fn find(target: usize) -> Result<FrameInfo> {
                 personality: 0,
                 eko_handlers: r.handlers,
                 signal: false,
-                kind: Kind::Eko(r.frame),
+                kind: r.kind(),
                 text_base: mh,
                 data_base: 0,
             });
