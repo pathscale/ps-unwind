@@ -1,7 +1,11 @@
 // Planted-defect runner. Each defect is an exact text substitution in src/.
 // For each: plant, rebuild, run the verifiers (tools/mixed.ts and
-// tools/eh.ts), require at least one named check to fail, revert
-// with git checkout, rebuild, and require every verifier to pass again.
+// tools/eh.ts), require at least one named check to fail, revert by
+// writing back the exact bytes saved before planting, rebuild, and require
+// every verifier to pass again. Before planting anything it refuses, naming
+// the defect and the file, when a file it plants into has uncommitted
+// changes (git status --porcelain), so it never touches uncommitted work.
+// SIGINT, SIGTERM and SIGHUP restore the planted file before exiting.
 // Usage: bun tools/defects.ts [name...]
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
@@ -54,16 +58,41 @@ function verifiers() {
 const summary = (t: string) => t.split("\n").filter((l) => /^(FAIL|eh: )/.test(l)).map((l) => l.slice(0, 200)).join("\n");
 
 const pick = process.argv.slice(2);
+const chosen = defects.filter((d) => pick.length === 0 || pick.includes(d.name));
 let bad = 0;
-for (const d of defects.filter((d) => pick.length === 0 || pick.includes(d.name))) {
+
+// Refuse before planting anything when a file a defect plants into is dirty.
+const dirty = chosen.filter((d) => sh(["git", "status", "--porcelain", "--", d.file]).text.trim() !== "");
+if (dirty.length > 0) {
+  for (const d of dirty) {
+    const st = sh(["git", "status", "--porcelain", "--", d.file]).text.trim();
+    console.log(`REFUSED ${d.name}: ${d.file} has uncommitted changes (${st}); commit or move them first, nothing was planted`);
+  }
+  console.log(`defects: REFUSED (${dirty.length})`);
+  process.exit(1);
+}
+
+// The file currently planted and its exact pre-plant bytes, for signals.
+let planted: { path: string; saved: Buffer } | null = null;
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(sig, () => {
+    if (planted) writeFileSync(planted.path, planted.saved);
+    console.log(`defects: interrupted by ${sig}${planted ? `, restored ${planted.path}` : ""}`);
+    process.exit(130);
+  });
+}
+
+for (const d of chosen) {
   const path = join(root, d.file);
-  const src = readFileSync(path, "utf8");
+  const saved = readFileSync(path);
+  const src = saved.toString("utf8");
   const hits = src.split(d.from).length - 1;
   if (hits !== 1) {
     console.log(`REFUSED ${d.name}: anchor found ${hits} times in ${d.file}`);
     bad++;
     continue;
   }
+  planted = { path, saved };
   writeFileSync(path, src.replace(d.from, d.to));
   const diff = sh(["git", "diff", "--", d.file]).text;
   const build = sh(["./tools/build.sh"]);
@@ -76,11 +105,13 @@ for (const d of defects.filter((d) => pick.length === 0 || pick.includes(d.name)
     caught = !v.pass;
     log += `-- tools/mixed.ts (exit ${v.m.code})\n${v.m.text}\n-- tools/eh.ts (exit ${v.s.code})\n${summary(v.s.text)}\n`;
   }
-  sh(["git", "checkout", "--", d.file]);
+  writeFileSync(path, saved);
+  planted = null;
+  const same = readFileSync(path).equals(saved);
   const rebuilt = sh(["./tools/build.sh"]);
   const after = rebuilt.code === 0 ? verifiers() : null;
-  const restored = !!after && after.pass;
-  log += `-- reverted with git checkout -- ${d.file}; verifiers after revert: ${restored ? "PASS" : "FAIL"}\n`;
+  const restored = same && !!after && after.pass;
+  log += `-- reverted by writing back the ${saved.length} saved bytes of ${d.file} (identical: ${same}); verifiers after revert: ${after && after.pass ? "PASS" : "FAIL"}\n`;
   log += `RESULT ${d.name}: ${caught ? "caught" : "NOT CAUGHT"}, ${restored ? "clean after revert" : "NOT CLEAN after revert"}\n`;
   writeFileSync(join(root, "target/defects", `${d.name}.txt`), log);
   console.log(log);

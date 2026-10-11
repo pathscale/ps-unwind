@@ -1,0 +1,12 @@
+# planted: one uncommitted line appended to src/mem.rs (a file 0x9b-decode plants into)
+$ git status --porcelain -- src/
+ M src/mem.rs
+$ bun tools/defects.ts
+REFUSED 0x9b-decode: src/mem.rs has uncommitted changes (M src/mem.rs); commit or move them first, nothing was planted
+defects: REFUSED (1)
+exit 1
+$ tail -1 src/mem.rs
+// uncommitted work that defects.ts must not touch
+$ shasum before and after
+1250f023e279fccafa25537fb4450aa5c806f407  src/mem.rs
+1250f023e279fccafa25537fb4450aa5c806f407  src/mem.rs

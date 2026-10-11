@@ -1,6 +1,7 @@
+$ bun tools/defects.ts
 == defect fde-off-by-one: FDE range lookup off by one: the return address itself is used as the lookup key instead of return address minus one
 diff --git a/src/abi.rs b/src/abi.rs
-index ae34ecf..f3587d2 100644
+index 9a7f066..a25f069 100644
 --- a/src/abi.rs
 +++ b/src/abi.rs
 @@ -66,7 +66,7 @@ impl Cursor {
@@ -15,7 +16,7 @@ index ae34ecf..f3587d2 100644
 
 -- tools/mixed.ts (exit 1)
 ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
-ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B A5 A6 00 00 10 10
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 2D 99 00 00 10 10
 ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
 ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
 ok   S4 eko-section: __eko_unwind 124 bytes
@@ -63,8 +64,8 @@ FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "stde
 FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C15 uncaught: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 101, ps signal SIGABRT
-eh: 7 pass, 14 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-flags, C11 share
--- reverted with git checkout -- src/abi.rs; verifiers after revert: PASS
+eh: 8 pass, 14 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-flags, C11 share
+-- reverted by writing back the 14905 saved bytes of src/abi.rs (identical: true); verifiers after revert: PASS
 RESULT fde-off-by-one: caught, clean after revert
 
 == defect 0x9b-decode: DW_EH_PE_indirect ignored, so 0x9b decodes to the GOT slot instead of the personality it holds
@@ -84,7 +85,7 @@ index 3cbc69a..3bc290c 100644
 
 -- tools/mixed.ts (exit 1)
 ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
-ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B A5 A6 00 00 10 10
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 2D 99 00 00 10 10
 ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
 ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
 ok   S4 eko-section: __eko_unwind 124 bytes
@@ -112,19 +113,19 @@ drop rust_b
 drop rust_a
 regcheck: no exception caught
 stderr:
-ps-unwind: PersonalityNotCode pc=0x104a8d094
-ps-unwind: PersonalityNotCode pc=0x104a8d094
-ps-unwind: PersonalityNotCode pc=0x104a8d094
-ps-unwind: PersonalityNotCode pc=0x104a8d094
-ps-unwind: PersonalityNotCode pc=0x104a8d094
-ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
+ps-unwind: PersonalityNotCode pc=0x1046f9094
 status: exit 0
 
 FAIL R2 panic: differs:
 stdout:
 stderr:
 panic: panic through mixed frames
-ps-unwind: PersonalityNotCode pc=0x104ef47b8
+ps-unwind: PersonalityNotCode pc=0x100a6c7b8
 fatal runtime error: failed to initiate panic, error 3, aborting
 status: signal SIGABRT
 
@@ -140,7 +141,7 @@ FAIL C02 unwind-drops: differs at line 3: sys "drop inner panicking=true" ps "st
 FAIL C03 two-sites: differs at line 4: sys "drop second panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C04 catch-local: differs at line 3: sys "drop inside closure panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C05 rethrow: differs at line 3: sys "rethrowing" ps "stderr:"; sys exit 0, ps signal SIGABRT
-FAIL C06 nounwind: differs at line 5: sys "fatal runtime error: failed to initiate panic, error 3, aborting" ps "ps-unwind: PersonalityNotCode pc=0x1027170b4"; sys signal SIGABRT, ps signal SIGABRT
+FAIL C06 nounwind: differs at line 5: sys "fatal runtime error: failed to initiate panic, error 3, aborting" ps "ps-unwind: PersonalityNotCode pc=0x1001b30b4"; sys signal SIGABRT, ps signal SIGABRT
 FAIL C07 cleanup-abort: differs at line 3: sys "bomb drop panicking=true" ps "stderr:"; sys signal SIGABRT, ps signal SIGABRT
 FAIL C08 drop-catches: differs at line 3: sys "absorber caught=true panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C09 enum-shapes: differs at line 3: sys "caught: shapes" ps "stderr:"; sys exit 0, ps signal SIGABRT
@@ -151,16 +152,16 @@ FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "std
 FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C15 uncaught: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 101, ps signal SIGABRT
 FAIL C16 bt-run: differs at line 5: sys "uw off -12004" ps "drop bt leaf panicking=false"; sys exit 0, ps exit 0
-eh: 5 pass, 16 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C06 nounwind, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-fl
--- reverted with git checkout -- src/mem.rs; verifiers after revert: PASS
+eh: 6 pass, 16 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C06 nounwind, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-fl
+-- reverted by writing back the 5538 saved bytes of src/mem.rs (identical: true); verifiers after revert: PASS
 RESULT 0x9b-decode: caught, clean after revert
 
 == defect wrong-call-site: EKO handler lookup returns the landing pad of the previous call site
 diff --git a/src/eko.rs b/src/eko.rs
-index 34ad09b..80aad9b 100644
+index 75b0de0..86f6ba6 100644
 --- a/src/eko.rs
 +++ b/src/eko.rs
-@@ -188,7 +188,7 @@ pub fn handler(table: usize, ret: u32) -> Result<Option<(u32, u32)>> {
+@@ -250,7 +250,7 @@ pub fn handler(table: usize, ret: u32) -> Result<Option<(u32, u32)>> {
      let (mut lo, mut hi) = (0usize, count);
      while lo < hi {
          let mid = lo + (hi - lo) / 2;
@@ -172,7 +173,7 @@ index 34ad09b..80aad9b 100644
 
 -- tools/mixed.ts (exit 1)
 ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
-ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 75 A6 00 00 10 10
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B FD 98 00 00 10 10
 ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
 ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
 ok   S4 eko-section: __eko_unwind 124 bytes
@@ -233,8 +234,8 @@ FAIL C10 drop-flags: differs at line 5: sys "drop y initialised panicking=true" 
 FAIL C11 shared: differs at line 4: sys "drop arc payload panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
 FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
-eh: 15 pass, 6 fail, 0 not run; failed: C03 two-sites, C05 rethrow, C10 drop-flags, C11 shared, C12 niche-some, C13 niche-none
--- reverted with git checkout -- src/eko.rs; verifiers after revert: PASS
+eh: 16 pass, 6 fail, 0 not run; failed: C03 two-sites, C05 rethrow, C10 drop-flags, C11 shared, C12 niche-some, C13 niche-none
+-- reverted by writing back the 22417 saved bytes of src/eko.rs (identical: true); verifiers after revert: PASS
 RESULT wrong-call-site: caught, clean after revert
 
 == defect missing-callee-saved: compact unwind FRAME step does not restore x22 (second register of the x21/x22 pair)
@@ -254,7 +255,7 @@ index 0885803..ab7c354 100644
 
 -- tools/mixed.ts (exit 1)
 ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
-ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 85 A6 00 00 10 10
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B FD 98 00 00 10 10
 ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
 ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
 ok   S4 eko-section: __eko_unwind 124 bytes
@@ -297,8 +298,9 @@ bt 5 main+0x34
 mixed: FAIL (1)
 
 -- tools/eh.ts (exit 0)
-eh: 21 pass, 0 fail, 0 not run
--- reverted with git checkout -- src/compact.rs; verifiers after revert: PASS
+eh: 22 pass, 0 fail, 0 not run
+-- reverted by writing back the 9460 saved bytes of src/compact.rs (identical: true); verifiers after revert: PASS
 RESULT missing-callee-saved: caught, clean after revert
 
 defects: PASS (every planted defect failed a named check and was reverted)
+exit 0
