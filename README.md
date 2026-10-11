@@ -1,5 +1,8 @@
 # ps-unwind
 
+[![Crates.io](https://img.shields.io/crates/v/ps-unwind.svg)](https://crates.io/crates/ps-unwind)
+[![Documentation](https://docs.rs/ps-unwind/badge.svg)](https://docs.rs/ps-unwind)
+
 A `#![no_std]` stack unwinder in Rust used instead of the platform unwinder in
 Rust programs. It exports the 14
 `_Unwind_*` entry points Rust std uses plus a 5-call crash-handler API, reads Apple compact unwind, DWARF CFI
@@ -113,6 +116,15 @@ cargo build                         # rlib, no panic handler
 
 ## Use
 
+As a Rust dependency (the rlib; no panic handler, for a std program):
+
+```toml
+[dependencies]
+ps-unwind = "0.1"
+```
+
+The staticlib from tools/build.sh, linked in place of the platform unwinder:
+
 ```
 rustc -C panic=unwind -C link-arg=-Wl,-force_load,$PWD/target/dist/libps_unwind.a main.rs
 ```
@@ -220,6 +232,10 @@ bun tools/check-darwin-tables.ts target/darwin-tables/plain --no-eko # shipped D
 
 Everything builds with the public rustup toolchain on PATH (PS_RUSTC names
 another rustc); nothing outside this repository is read.
+
+CI and publishing are manual (`workflow_dispatch`). The version in `Cargo.toml`
+is the release: a version merged to `main` that crates.io lacks is published
+from that commit. The gate is the local run above.
 
 MIT licensed.
 
