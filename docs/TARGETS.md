@@ -2,7 +2,7 @@
 
 | Target | Tables | Built | Run here |
 |---|---|---|---|
-| aarch64-apple-darwin | `__eko_unwind`, `__unwind_info` (regular and compressed pages, FRAME, FRAMELESS, DWARF mode), `__eh_frame` (z P L R S B G, pointer encodings incl. 0x9b), `__gcc_except_tab` via std personality | yes | yes: tools/eh.ts, tools/mixed.ts, tools/defects.ts, tools/check-nostd.ts |
+| aarch64-apple-darwin | `__eko_unwind`, `__unwind_info` (regular and compressed pages, FRAME, FRAMELESS, DWARF mode), `__eh_frame` (z P L R S B G, pointer encodings incl. 0x9b), `__gcc_except_tab` via std personality | yes | yes: tools/eh.ts (also --format 2), tools/mixed.ts, tools/defects.ts, tools/check-nostd.ts, tools/signal-check.ts, tools/cache-check.ts, tools/eko2.ts |
 | aarch64-unknown-linux-gnu | EKO notes, `.eh_frame_hdr` (0x3b table), `.eh_frame` | yes | no, compiled only |
 | aarch64-unknown-linux-musl | same | yes | no, compiled only |
 | x86_64-unknown-linux-gnu | same | yes | no, compiled only |
@@ -11,17 +11,27 @@
 
 "Compiled only" means: `./tools/build.sh <triple>` builds the LTO object and
 `bun tools/check-nostd.ts <triple>` passes (no std symbol, only the allowed
-libc imports, exactly the 18 exports); see transcripts/linux-compile.txt.
+libc imports, exactly the exports check-nostd R5 allows: the 14 `_Unwind_*`
+and the 5 `ps_unwind_*` functions); see transcripts/cache-nostd-linux.txt.
+The EKO version 2 tables of the musl images are generated and decoded at
+every instruction by tools/eko2.ts (E1, E2), not run.
 A std program links with it on musl (tools/check-linux-link.ts L2), but
 nothing for Linux has been executed, so the ELF finder and image cache, the x86_64 register layer, the
 x86_64 trampolines and restore, and the Linux `_Unwind_GetCFA` are unverified.
 
-Within aarch64-apple-darwin, these paths have no fixture yet:
+Signal frames on aarch64-apple-darwin (`bun tools/signal-check.ts`,
+transcripts/signal-check.txt): SG1 walks out of the handler through
+`_sigtramp` and matches the system unwinder; FL1 and FL2 fault in compact
+FRAMELESS functions (stack 0 and 32) and check `ip_before_insn` and the
+caller against the system walk; EA1 and V1 check the version 1
+`EkoAsyncFrame` refusal; SG2 and FL3 fault before, inside and after the
+prologue and epilogue of functions described by an EKO version 2 table; E3
+checks that table against `.eh_frame`. Not run: LX1, the aarch64 Linux
+`__kernel_rt_sigreturn` path (compiled only), and no fixture has a CIE with
+augmentation S (Darwin `_sigtramp` has none).
 
-- FRAMELESS compact frames as the interrupted frame (needs a signal fixture);
-  the register layout used there is unverified against Apple libunwind.
-- Signal frames in general (`ip_before_insn`, CIE augmentation S,
-  `EkoAsyncFrame`).
+Within aarch64-apple-darwin, this is not measured:
+
 - Compressed versus regular second-level pages are both parsed; which kinds
   the fixtures hit was not measured.
 
@@ -46,8 +56,8 @@ Files the sysroot needs, for the glibc 2.17 baseline std targets:
 | `libm.so.6`, `libm.so` | std links `-lm` | stub DSO + `GROUP` script |
 | `libpthread.so`, `libdl.so`, `librt.so`, `libutil.so` | the libc crate passes `-lpthread -ldl -lrt -lutil` on gnu | empty stub DSOs (SONAME `libpthread.so.0` etc.) or linker scripts naming `libc.so.6`; with `--as-needed` none becomes `NEEDED` |
 | `libgcc_s.so` | the `-lgcc_s` std passes must resolve to nothing | NOT included by design: an empty archive `libgcc_s.a` (`!<arch>` header only) so ps-unwind defines `_Unwind_*` and L3 can check no `libgcc_s` is `NEEDED` |
-| `Scrt1.o`, `crt1.o`, `crti.o`, `crtn.o` | `_start`, `_init`/`_fini` prologue and epilogue rustc's gcc-flavour link line names | from the crt work (item 6, branch `crt`) or the .deb below |
-| `crtbeginS.o`, `crtendS.o` (and non-S) | `__dso_handle`, init/fini array ends | item 6 (branch `crt`), written from the ABI documents |
+| `Scrt1.o`, `crt1.o`, `crti.o`, `crtn.o` | `_start`, `_init`/`_fini` prologue and epilogue rustc's gcc-flavour link line names | the C library's own (from the .deb below); crtbegin/crtend come from crt/ |
+| `crtbeginS.o`, `crtendS.o` (and non-S) | `__dso_handle`, init/fini array ends | crt/ (docs/CRT.md), written from the ABI documents |
 
 Where the DSOs come from, two options:
 
@@ -65,7 +75,7 @@ Where the DSOs come from, two options:
    the safe direction.
 2. Extracted from Debian/Ubuntu arm64 `.deb`s without installing:
    download `libc6_*_arm64.deb` and `libc6-dev_*_arm64.deb` (and
-   `libgcc-*-dev` only if the item 6 crt objects are not used), unpack with
+   `libgcc-*-dev` only if the crt/ objects are not used), unpack with
    `ar x` and `tar xf data.tar.*` into `target/glibc-sysroot/`. Exact symbols,
    versions and sizes; real crt1/crti/crtn. Costs: a network download per
    machine, the version pinned to that release (must be >= the 2.17
