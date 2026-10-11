@@ -10,8 +10,14 @@ behind each number:
 
 ps-unwind provides the `_Unwind_*` boundary that Rust `panic_unwind`, the
 personality routine and `std::backtrace` call, for Rust programs, including
-ones whose compiler emits the EKO table (docs/FORMAT.md). It is `#![no_std]`, allocates nothing, and reaches
-the platform only through `libc`.
+ones whose compiler emits the EKO table (docs/FORMAT.md). It is `#![no_std]`
+and reaches the platform only through `libc`. Its unwind and walk code
+allocates nothing; the image cache writers do: the constructor that builds
+the cache at load, the dyld add/remove-image callbacks on Darwin
+(`dlopen`/`dlclose`), and on Linux the refresh that a lookup miss triggers
+outside signal context, which can happen during an unwind. Between
+`ps_unwind_signal_enter` and `ps_unwind_signal_leave` a walk never runs a
+writer (a miss is `SignalContextMiss`), so a crash walk allocates nothing ("Cost on the unwind path", "Image cache").
 
 ## Exports
 
