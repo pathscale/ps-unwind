@@ -30,7 +30,7 @@ convention (version 1, actions, class, exception, context).
 | src/find/elf.rs | cache fill from AT_PHDR and `dl_iterate_phdr`, refresh on a miss outside signal context; EKO notes, then `.eh_frame_hdr` binary search, then `.eh_frame` scan |
 | src/compact.rs | `__unwind_info` first level, regular and compressed second-level pages, LSDA index, personality array, FRAME and FRAMELESS steps, DWARF-mode hand-off |
 | src/cfi.rs | CIE/FDE parsing (augmentations z P L R S B G), the CFA program, a DW_OP subset |
-| src/eko.rs | EKO v1 reader (docs/FORMAT.md) and the built-in EKO personality |
+| src/eko.rs | EKO v1 and v2 reader (docs/FORMAT.md) and the built-in EKO personality |
 | src/mem.rs | unaligned loads, LEB128, DW_EH_PE decoding including indirect (0x9b) |
 | src/failure.rs | the named failures, last-failure record, the fatal path |
 
@@ -228,6 +228,8 @@ released version has it.
   EkoAsyncFrame (EA1). On Darwin that EKO function still has its
   standard tables (docs/FORMAT.md), so falling back to them for an
   interrupted EKO frame is possible; it is not done: the refusal stays.
+  A version 2 record describes every instruction and steps an
+  interrupted frame anywhere in it (signal-check SG2, FL3).
 - aarch64 Linux: the vDSO `__kernel_rt_sigreturn` is recognised by its code
   (`mov x8, #139; svc #0`, as libgcc and LLVM libunwind do), before any
   table lookup; the caller state is the ucontext at sp + 128 (after the
@@ -244,7 +246,7 @@ cross toolchain; not run here). crtbegin.o calls `__register_frame_info` /
 `__deregister_frame_info` only through weak references; ps-unwind does not
 define them, so they stay 0, crtbegin skips registration, and the weak
 references do not make an `--as-needed` libgcc_s NEEDED. EKO functions on
-Linux may therefore carry only the EKO table (docs/FORMAT.md).
+Linux may therefore carry only the EKO table, version 2 (docs/FORMAT.md).
 
 ## Two unwinders on Darwin, accepted
 
@@ -293,7 +295,8 @@ Size). What it was said to buy, case by case:
   shadows them. With the table present the EKO record wins the lookup
   (src/find/darwin.rs) and the crash walk stops at that frame
   (tools/signal-check.ts EA1: last_failure=25). The table makes Darwin crash
-  traces worse, not better.
+  traces worse, not better. A version 2 table has no such refusal, but adds
+  nothing either: the standard tables it would duplicate stay mandatory.
 - Frame kinds the standard formats cannot express. None: every EKO record
   kind (LEAF, FP, SP) maps onto a compact FRAMELESS or FRAME encoding or DWARF
   CFI, and D1 already requires one to exist for every EKO function.
