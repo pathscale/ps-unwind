@@ -1,0 +1,30 @@
+name: CI
+
+# Manual only: the gate is the local run (README, Verify) before a PR merges. Most
+# checks run fixtures on aarch64 Darwin and are not repeated here; this job compiles
+# every supported target and lints with warnings denied.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and clippy, every target
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: aarch64-apple-darwin, x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
+      - run: cargo build --release
+      - run: cargo clippy --release -- -D warnings
+      - run: cargo clippy --release --target aarch64-apple-darwin -- -D warnings
+      - run: cargo clippy --release --target x86_64-unknown-linux-musl -- -D warnings
+      - run: cargo clippy --release --target aarch64-unknown-linux-musl -- -D warnings
+      - run: cargo clippy --release --target x86_64-unknown-linux-gnu -- -D warnings
+      - run: cargo clippy --release --target aarch64-unknown-linux-gnu -- -D warnings
+      - run: cargo clippy --release --example eko-dump --example landing-sp -- -D warnings
+      # The staticlib build (panic handler included) for the Linux targets.
+      - run: cargo rustc --release --features staticlib --crate-type staticlib --target x86_64-unknown-linux-musl
+      - run: cargo rustc --release --features staticlib --crate-type staticlib --target aarch64-unknown-linux-musl
+      - run: cargo package --list
