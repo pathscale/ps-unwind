@@ -74,6 +74,14 @@ equals `private_2` and stops with `HandlerFrameMissed` if the personality then
 asks to continue. A personality result outside the protocol is
 `BadPersonalityResult`.
 
+Installing a landing pad (`_Unwind_SetIP` from a personality, or the EKO
+personality itself) goes through `Cursor::set_landing_ip_for`: the stack
+pointer moves up by the `DW_CFA_GNU_args_size` in effect at the call, read
+from the frame's own table at its lookup pc before the pc changes, as
+libgcc and LLVM libunwind do. Stepping never applies it. The `.eh_frame`
+reader and the version 2 reader both provide it; other record kinds give 0
+(docs/FORMAT.md, State).
+
 Phase one is kept on purpose. Without it the cleanups of every frame would
 run before the unwinder learned that nothing catches, which changes drop
 output and the abort message; it is not a shortcut that can be taken while
