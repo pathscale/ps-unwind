@@ -1,0 +1,2 @@
+uc #0 sg_eko_fp+0x0 before_insn=1 sp=+0
+uc end rc=5 last_failure=25 at=sg_eko_fp+0x0

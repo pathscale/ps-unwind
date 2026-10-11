@@ -2,9 +2,12 @@ PASS SG1 sigtramp:
   first: equal (7 frames from _sigtramp, tramp end rc=5)
   frameless: equal (7 frames from _sigtramp, tramp end rc=5)
   eko: equal (7 frames from _sigtramp, tramp end rc=5)
-PASS FL1 frameless-leaf: uc walk: sg_fault_first+0x0 b=1 sp=0 | _RNvCsfTv2os8dkzl_3sig6caller+0x6c b=0 sp=0 | _RNvCsfTv2os8dkzl_3sig4main+0x10c b=0 sp=16 ...; want sg_fault_first+0x0 b=1, caller sp delta 0, callers equal to the system walk after _sigtramp (6)
-PASS FL2 frameless-32: uc walk: sg_frameless32+0x4 b=1 sp=0 | _RNvCsfTv2os8dkzl_3sig6caller+0x44 b=0 sp=32 | _RNvCsfTv2os8dkzl_3sig4main+0x10c b=0 sp=48 ...; want sg_frameless32+0x4 b=1, caller sp delta 32, callers equal to the system walk after _sigtramp (6)
+PASS FL1 frameless-leaf: uc walk: sg_fault_first+0x0 b=1 sp=0 | _RNvCsfTv2os8dkzl_3sig6caller+0xe4 b=0 sp=0 | _RNvCsfTv2os8dkzl_3sig4main+0x10c b=0 sp=32 ...; want sg_fault_first+0x0 b=1, caller sp delta 0, callers equal to the system walk after _sigtramp (6)
+PASS FL2 frameless-32: uc walk: sg_frameless32+0x4 b=1 sp=0 | _RNvCsfTv2os8dkzl_3sig6caller+0x50 b=0 sp=32 | _RNvCsfTv2os8dkzl_3sig4main+0x10c b=0 sp=64 ...; want sg_frameless32+0x4 b=1, caller sp delta 32, callers equal to the system walk after _sigtramp (6)
 PASS EA1 eko-async: uc walk: sg_eko_fp+0x0 b=1 sp=0; uc end rc=5 last_failure=25 at=sg_eko_fp+0x0 (25 = EkoAsyncFrame)
+PASS V1 eko-v1-refusal: uc walk output byte-identical to fixtures/signal/expected/v1-refusal.txt (85 bytes): "uc #0 sg_eko_fp+0x0 before_insn=1 sp=+0\nuc end rc=5 last_failure=25 at=sg_eko_fp+0x0\n"
+PASS SG2 v2-prologue-epilogue: 10 faults at sg_v2_fp+0x0 sg_v2_fp+0x8 sg_v2_fp+0x10 sg_v2_fp+0x18 sg_v2_fp+0x20 sg_v2_fp+0x30 sg_v2_fp+0x38 sg_v2_fp+0x40 sg_v2_fp+0x48 sg_v2_fp+0x50; caller frame equal to the entry state at every one: yes
+PASS FL3 v2-frameless: 6 faults at sg_v2_leaf+0x0 sg_v2_leaf+0x8 sg_v2_leaf+0x10 sg_v2_leaf+0x18 sg_v2_leaf+0x20 sg_v2_leaf+0x28; caller frame equal to the entry state at every one: yes
+PASS E3 v2-equivalence: 2 v2 functions, 34 instructions compared with .eh_frame
 NOT RUN LX1 linux-sigreturn: aarch64 Linux __kernel_rt_sigreturn decoding (Regs::is_sigreturn, sigreturn_caller) is compiled only; needs an aarch64 Linux machine
-signal-check: 4 pass, 0 fail, 1 not run
-exit 2
+signal-check: 8 pass, 0 fail, 1 not run

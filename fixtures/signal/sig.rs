@@ -6,11 +6,16 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 
 std::arch::global_asm!(include_str!("sig.s"), options(raw));
+// EKO version 2 table for sg_v2_* (tools/eko2-gen.ts output).
+#[cfg(v2)]
+std::arch::global_asm!(include_str!(env!("PS_EKO2_S")), options(raw));
 
 unsafe extern "C" {
     fn sg_fault_first();
     fn sg_frameless32();
     fn sg_eko_fp();
+    fn sg_v2_fp();
+    fn sg_v2_leaf();
     fn _Unwind_Backtrace(cb: extern "C" fn(*mut c_void, *mut c_void) -> c_int, arg: *mut c_void) -> c_int;
     fn _Unwind_GetIPInfo(ctx: *mut c_void, before: *mut c_int) -> usize;
     fn _Unwind_GetCFA(ctx: *mut c_void) -> usize;
@@ -22,6 +27,7 @@ unsafe extern "C" {
 #[cfg(ps)]
 unsafe extern "C" {
     fn ps_unwind_signal_enter();
+    fn ps_unwind_signal_leave();
     fn ps_unwind_last_failure(pc: *mut usize) -> u32;
     fn ps_unwind_backtrace_ucontext(uc: *const c_void, cb: extern "C" fn(*mut c_void, *mut c_void) -> c_int, arg: *mut c_void) -> c_int;
 }
@@ -81,9 +87,102 @@ fn print(tag: &str, rel: usize) {
     unsafe { COUNT = 0 };
 }
 
+// v2 modes: the handler records the walks of every fault, steps over the
+// udf and returns, so one call of the fixture faults at every prologue and
+// epilogue step. The truth is the hardware state at the first fault (the
+// function entry): lr, sp, x19, x20, x29 and d8 are what the caller frame
+// must get back at every later fault.
+const FAULTS: usize = 16;
+const DEPTH: usize = 12;
+static mut V2_ON: bool = false;
+static mut V2_COUNT: usize = 0;
+// Per fault, per frame: ip, before_insn, CFA, x19, x20, x29, d8.
+static mut V2_UC: [[[usize; 7]; DEPTH]; FAULTS] = [[[0; 7]; DEPTH]; FAULTS];
+static mut V2_UCN: [usize; FAULTS] = [0; FAULTS];
+static mut V2_END: [(c_int, u32); FAULTS] = [(0, 0); FAULTS];
+static mut V2_TRUTH: [usize; 6] = [0; 6];
+
+#[cfg(ps)]
+extern "C" fn trace_v2(ctx: *mut c_void, arg: *mut c_void) -> c_int {
+    unsafe {
+        let k = arg as usize;
+        let n = V2_UCN[k];
+        if n == DEPTH {
+            return 9;
+        }
+        let mut before = 0;
+        let ip = _Unwind_GetIPInfo(ctx, &mut before);
+        // The ps-unwind context starts with its register file
+        // (src/arch/aarch64.rs): x0..x30 at 8 * i, d8 at byte 264.
+        let r = ctx as *const usize;
+        V2_UC[k][n] = [ip, before as usize, _Unwind_GetCFA(ctx), *r.add(19), *r.add(20), *r.add(29), *r.add(33)];
+        V2_UCN[k] = n + 1;
+    }
+    0
+}
+
+unsafe fn v2_fault(uc: *mut c_void) {
+    unsafe {
+        // Darwin: uc_mcontext at 48; __ss after the 16-byte __es: x0..x28,
+        // fp, lr, sp, pc; __ns (v0..v31, 16 bytes each) at 288.
+        let mc = *((uc as usize + 48) as *const usize);
+        let gp = mc + 16;
+        let x = |i: usize| *((gp + 8 * i) as *const usize);
+        let k = V2_COUNT;
+        if k < FAULTS {
+            if k == 0 {
+                V2_TRUTH = [x(30), x(31), x(19), x(20), x(29), *((mc + 288 + 16 * 8) as *const usize)];
+            }
+            #[cfg(ps)]
+            {
+                let rc = ps_unwind_backtrace_ucontext(uc, trace_v2, k as *mut c_void);
+                let mut pc = 0usize;
+                V2_END[k] = (rc, ps_unwind_last_failure(&mut pc));
+            }
+            V2_COUNT = k + 1;
+        }
+        // Step over the udf and go on.
+        *((gp + 32 * 8) as *mut usize) += 4;
+        #[cfg(ps)]
+        ps_unwind_signal_leave();
+    }
+}
+
+fn v2_report(func: &str) {
+    let (k, t) = unsafe { (V2_COUNT, V2_TRUTH) };
+    let uc = unsafe { &*std::ptr::addr_of!(V2_UC) };
+    let ucn = unsafe { &*std::ptr::addr_of!(V2_UCN) };
+    let end = unsafe { &*std::ptr::addr_of!(V2_END) };
+    println!("v2 {func} faults={k} truth ra={}", name(t[0]));
+    let ok = |c: bool| if c { "ok" } else { "BAD" };
+    let key = |f: &[[usize; 7]]| f.iter().map(|x| (x[0], x[2])).collect::<Vec<_>>();
+    for i in 0..k {
+        let f = &uc[i][..ucn[i]];
+        let f0 = f.first().map_or("-".to_string(), |x| format!("{} b={}", name(x[0]), x[1]));
+        let one = f.get(1).copied().unwrap_or([0; 7]);
+        let ra = if one[0] == t[0] { "ok".to_string() } else { format!("BAD({})", name(one[0])) };
+        let sp = if one[2] == t[1] { "ok".to_string() } else { format!("BAD({:+})", one[2] as isize - t[1] as isize) };
+        let first = &uc[0][..ucn[0]];
+        let callers = f.len() > 2 && f.len() == first.len() && key(&f[2..]) == key(&first[2..]);
+        let fin = end[i] == end[0] && end[i].1 <= 3;
+        println!(
+            "v2 {func} #{i} {f0} ra={ra} sp={sp} x19={} x20={} x29={} d8={} callers={} end={} rc={} failure={}",
+            ok(one[3] == t[2]), ok(one[4] == t[3]), ok(one[5] == t[4]), ok(one[6] == t[5]), ok(callers), ok(fin), end[i].0, end[i].1
+        );
+    }
+    unsafe {
+        V2_COUNT = 0;
+        V2_UCN = [0; FAULTS];
+    }
+}
+
 extern "C" fn on_sigill(_sig: c_int, _info: *mut c_void, uc: *mut c_void) {
     #[cfg(ps)]
     unsafe { ps_unwind_signal_enter() };
+    if unsafe { V2_ON } {
+        unsafe { v2_fault(uc) };
+        return;
+    }
     let rc = unsafe { _Unwind_Backtrace(trace, std::ptr::null_mut()) };
     // Printing allocates; the walks are over and the process exits next.
     // Through _sigtramp: stack pointers relative to the _sigtramp frame (#1),
@@ -108,6 +207,18 @@ fn caller(mode: &str) {
         "first" => unsafe { sg_fault_first() },
         "frameless" => unsafe { sg_frameless32() },
         "eko" => unsafe { sg_eko_fp() },
+        "v2fp" => {
+            unsafe { V2_ON = true };
+            unsafe { sg_v2_fp() };
+            unsafe { V2_ON = false };
+            v2_report("sg_v2_fp");
+        }
+        "v2leaf" => {
+            unsafe { V2_ON = true };
+            unsafe { sg_v2_leaf() };
+            unsafe { V2_ON = false };
+            v2_report("sg_v2_leaf");
+        }
         _ => panic!("mode"),
     }
     std::hint::black_box(());
