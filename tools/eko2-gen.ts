@@ -8,7 +8,9 @@
 //                  not express (a CFA on another register, a rule that is not
 //                  [CFA-8n], undefined or expression rules, GNU ops other
 //                  than DW_CFA_GNU_args_size, args_size together with
-//                  remember_state) leave the function
+//                  remember_state, an op llvm-objdump prints without a
+//                  name that the raw bytes do not show to be args_size)
+//                  leave the function
 //                  on the standard tables; it is listed as skipped
 //   handlers       one row per call, keyed by return address: no LSDA entry
 //                  = terminate, landing pad 0 = no row, action 0 or type
@@ -85,14 +87,29 @@ export function fdes(img: string): Map<bigint, Fde> {
   let cur: Fde | null = null;
   let inEh = false;
   let pc = 0n;
+  // CIE augmentation by section offset; FDE section offset and CIE offset;
+  // ops llvm-objdump prints without a name, by FDE.
+  const cies = new Map<number, { aug: string; data: number[] }>();
+  let cie: { aug: string; data: number[] } | null = null;
+  const where = new Map<Fde, { off: number; cie: number }>();
+  const unnamed = new Map<Fde, { idx: number; at: bigint; text: string }[]>();
   for (const l of out([`${llvm}/llvm-objdump`, "--dwarf=frames", img]).split("\n")) {
     if (/^\.(\S+) contents:$/.test(l)) { inEh = l.startsWith(".eh_frame"); cur = null; continue; }
     if (!inEh) continue;
-    const h = l.match(/^[0-9a-f]{8} ([0-9a-f]{8}) [0-9a-f]{8} (FDE|CIE)(?: cie=[0-9a-f]+ pc=([0-9a-f]+)\.\.\.([0-9a-f]+))?/);
+    const h = l.match(/^([0-9a-f]{8}) ([0-9a-f]{8}) [0-9a-f]{8} (FDE|CIE)(?: cie=([0-9a-f]+) pc=([0-9a-f]+)\.\.\.([0-9a-f]+))?/);
     if (h) {
-      cur = h[2] === "FDE" ? { start: BigInt(`0x${h[3]}`), end: BigInt(`0x${h[4]}`), lsda: null, len: parseInt(h[1], 16) + 4, rows: [], ops: [], args: [] } : null;
-      if (cur) m.set(cur.start, cur);
+      cur = h[3] === "FDE" ? { start: BigInt(`0x${h[5]}`), end: BigInt(`0x${h[6]}`), lsda: null, len: parseInt(h[2], 16) + 4, rows: [], ops: [], args: [] } : null;
+      cie = null;
+      if (cur) { m.set(cur.start, cur); where.set(cur, { off: parseInt(h[1], 16), cie: parseInt(h[4], 16) }); }
+      else { cie = { aug: "", data: [] }; cies.set(parseInt(h[1], 16), cie); }
       if (cur) pc = cur.start;
+      continue;
+    }
+    if (cie) {
+      const s = l.match(/^\s+Augmentation:\s+"(.*)"$/);
+      if (s) cie.aug = s[1];
+      const d = l.match(/^\s+Augmentation data:\s+((?:[0-9A-Fa-f]{2} ?)*)$/);
+      if (d) cie.data = d[1].trim().split(" ").filter((x) => x).map((x) => parseInt(x, 16));
       continue;
     }
     if (!cur) continue;
@@ -100,6 +117,15 @@ export function fdes(img: string): Map<bigint, Fde> {
     if (a) cur.lsda = BigInt(`0x${a[1]}`);
     const o = l.match(/^\s+(DW_CFA_\w+)/);
     if (o) cur.ops.push(o[1]);
+    // An op the printer has no name for on this architecture (aarch64
+    // prints DW_CFA_GNU_args_size as ": +N"): resolved from the raw bytes
+    // below, refused by states() if it is not args_size.
+    const u = l.match(/^\s+: (.*)$/);
+    if (u) {
+      if (!unnamed.has(cur)) unnamed.set(cur, []);
+      unnamed.get(cur)!.push({ idx: cur.ops.length, at: pc, text: u[1] });
+      cur.ops.push("unnamed");
+    }
     const to = l.match(/^\s+DW_CFA_\w+: .* to 0x([0-9a-f]+)$/);
     if (to) pc = BigInt(`0x${to[1]}`);
     const g = l.match(/^\s+DW_CFA_GNU_args_size: \+?(\d+)$/);
@@ -107,7 +133,68 @@ export function fdes(img: string): Map<bigint, Fde> {
     const r = l.match(/^\s+0x([0-9a-f]+): (CFA=.*)$/);
     if (r) cur.rows.push({ at: BigInt(`0x${r[1]}`), text: r[2] });
   }
+  if (unnamed.size) {
+    const eh = section(img, image(img).macho ? "__eh_frame" : ".eh_frame").bytes;
+    for (const [f, list] of unnamed) {
+      const w = where.get(f)!;
+      const ops = rawOps(eh, w.off, cies.get(w.cie));
+      for (const x of list) {
+        const op = ops?.[x.idx];
+        if (op && op.code === 0x2e && x.text === `+${op.arg}`) {
+          f.ops[x.idx] = "DW_CFA_GNU_args_size";
+          f.args.push({ at: x.at, n: op.arg });
+        }
+      }
+      f.args.sort((p, q) => (p.at < q.at ? -1 : p.at > q.at ? 1 : 0));
+    }
+  }
   return m;
+}
+
+/** The CFA instructions of the FDE at section offset `off` as opcode and
+ * first operand (uleb operands only), in order, nops included; null when
+ * the CIE augmentation or an op is not understood. */
+function rawOps(eh: number[], off: number, cie: { aug: string; data: number[] } | undefined): { code: number; arg: number }[] | null {
+  if (!cie || !cie.aug.startsWith("z")) return null;
+  let r = 0;
+  let k = 0;
+  for (const c of cie.aug.slice(1)) {
+    if (c === "P") { const e = cie.data[k++]; k += encSize(e) ?? 99; }
+    else if (c === "L") k++;
+    else if (c === "R") r = cie.data[k++];
+    else if (c !== "S" && c !== "B") return null;
+  }
+  const ptr = encSize(r);
+  if (ptr === null) return null;
+  const u32 = (i: number) => (eh[i] | (eh[i + 1] << 8) | (eh[i + 2] << 16) | (eh[i + 3] << 24)) >>> 0;
+  const end = off + 4 + u32(off);
+  let p = off + 8 + 2 * ptr;
+  const uleb = () => { let v = 0, s = 0, b; do { b = eh[p++]; v += (b & 0x7f) * 2 ** s; s += 7; } while (b & 0x80); return v; };
+  const augLen = uleb();
+  p += augLen;
+  const skip = (n: number) => { p += n; return 0; };
+  const res: { code: number; arg: number }[] = [];
+  const size: Record<number, string> = { 0x00: "", 0x02: "1", 0x03: "2", 0x04: "4", 0x05: "uu", 0x06: "u", 0x07: "u", 0x08: "u", 0x09: "uu", 0x0a: "", 0x0b: "", 0x0c: "uu", 0x0d: "u", 0x0e: "u", 0x0f: "b", 0x10: "ub", 0x11: "uu", 0x12: "uu", 0x13: "u", 0x14: "uu", 0x15: "uu", 0x16: "ub", 0x2d: "", 0x2e: "u", 0x2f: "uu" };
+  while (p < end) {
+    const c = eh[p++];
+    if (c & 0xc0) { res.push({ code: c & 0xc0, arg: 0 }); if ((c & 0xc0) === 0x80) uleb(); continue; }
+    const form = size[c];
+    if (form === undefined) return null;
+    let first = -1;
+    for (const f of form) {
+      // sleb operands are skipped as ulebs: only the length matters here.
+      const v = f === "u" ? uleb() : f === "b" ? skip(uleb()) : skip(Number(f));
+      if (first < 0) first = v;
+    }
+    res.push({ code: c, arg: first });
+  }
+  return res;
+}
+
+/** Bytes of a DW_EH_PE value of this encoding, or null. */
+function encSize(e: number): number | null {
+  const s: Record<number, number> = { 0x00: 8, 0x02: 2, 0x03: 4, 0x04: 8, 0x0a: 2, 0x0b: 4, 0x0c: 8 };
+  return s[e & 0x0f] ?? null;
 }
 
 /** Parse one llvm-objdump row into a state, or the reason it is not expressible. */
@@ -132,7 +219,7 @@ export function parseRow(a: Arch, text: string): St | string {
 
 /** States of an FDE as [offset, state], merged, or the reason none fits. */
 export function states(a: Arch, f: Fde): [number, St][] | string {
-  for (const op of f.ops) if (/negate_ra|expression|val_|^DW_CFA_register$|^DW_CFA_GNU_(?!args_size$)|undefined/.test(op)) return op;
+  for (const op of f.ops) if (/negate_ra|expression|val_|^DW_CFA_register$|^DW_CFA_GNU_(?!args_size$)|undefined|^unnamed$/.test(op)) return op === "unnamed" ? "an op llvm-objdump does not name" : op;
   if (f.args.length && f.ops.some((op) => /remember_state|restore_state/.test(op))) return "DW_CFA_GNU_args_size with DW_CFA_remember_state";
   const rows: [number, St][] = [];
   for (const r of f.rows) {
