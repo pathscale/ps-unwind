@@ -278,13 +278,21 @@ pub fn handler(table: usize, ret: u32) -> Result<Option<(u32, u32)>> {
 ///                 data reg 0 = exception, data reg 1 = 0, pc = landing pad;
 ///                 terminate -> fatal phase 2 error.
 /// A frame interrupted by a signal has no call site, so it has no row.
+/// Installing a pad goes through Cursor::set_landing_ip_for, as
+/// _Unwind_SetIP does: a version 2 frame pops its DW_CFA_GNU_args_size.
 pub fn personality(actions: u32, exception: *mut UnwindException, cursor: &mut Cursor) -> Result<Reason> {
+    personality_for(&HOST, actions, exception, cursor)
+}
+
+/// `personality` reading version 2 programs of architecture `a`
+/// (tools/landing-sp.rs reads x86_64 tables on any host).
+pub fn personality_for(a: &Arch2, actions: u32, exception: *mut UnwindException, cursor: &mut Cursor) -> Result<Reason> {
     let table = cursor.info.eko_handlers;
     let pc = cursor.regs.pc;
     let row = if cursor.ip_before_insn || table == 0 || pc < cursor.info.start {
         None
     } else if let Kind::Eko2 { program, limit } = cursor.info.kind {
-        let (_, after) = run(&HOST, program, limit, usize::MAX)?;
+        let (_, after) = run(a, program, limit, usize::MAX)?;
         handler2(after, limit, (pc - cursor.info.start) as u32)?
     } else {
         handler(table, (pc - cursor.info.start) as u32)?
@@ -301,7 +309,7 @@ pub fn personality(actions: u32, exception: *mut UnwindException, cursor: &mut C
         Some((pad, ACTION_CLEANUP | ACTION_CATCH)) => {
             cursor.regs.set(arch::DATA_REG0 as u16, exception as usize)?;
             cursor.regs.set(arch::DATA_REG1 as u16, 0)?;
-            cursor.regs.pc = cursor.info.start + pad as usize;
+            cursor.set_landing_ip_for(a, cursor.info.start + pad as usize)?;
             abi::URC_INSTALL_CONTEXT
         }
         _ => abi::URC_FATAL_PHASE2_ERROR,
@@ -382,7 +390,9 @@ pub const MAX_REMEMBER: usize = 4;
 /// each saved register is at CFA - 8 * slot; every other register, and the
 /// return address when it is not saved, still holds its caller value.
 /// `args_size` is DW_CFA_GNU_args_size (bytes of pushed outgoing arguments,
-/// x86): carried as .eh_frame carries it; stepping does not use it.
+/// x86): carried as .eh_frame carries it. Stepping does not use it;
+/// installing a landing pad adds it to the stack pointer
+/// (abi::Cursor::set_landing_ip_for).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct State {
     pub cfa_fp: bool,
