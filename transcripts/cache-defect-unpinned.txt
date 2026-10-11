@@ -1,0 +1,18 @@
+# planted: src/cache.rs lookup, "let _pin = domain.pin_reader(slot);" replaced by "let _pin = (domain, slot);" (no pin)
+$ bun tools/cache-check.ts
+start entries=45 publishes=1 freed=0 pending=0 slot=1 signal=0 dyld_images=45
+opened entries=46 publishes=2 freed=1 pending=0 slot=1 signal=0 dyld_images=46
+opened fn=0x100c50320 enclosing=0x100c50320 last_failure=0
+dlclose rc=0
+closed entries=45 publishes=3 freed=2 pending=0 slot=1 signal=0 dyld_images=45
+closed fn=0x100c50320 enclosing=0x0 last_failure=1
+PASS C1 ctor-built: before main: entries 45, dyld images 45, publishes 1
+PASS C2 add-image: after dlopen: entries 46, dyld images 46, plug_fn 0x100c50320, enclosing 0x100c50320
+PASS C3 remove-image: fixture exit 0; after dlclose: entries 45, dyld images 45, enclosing 0x0, last failure 1 (1 = NoImage), freed 2
+FAIL C4 grace-period: 
+  run 1: exit SIGSEGV no result line 
+  run 2: exit SIGSEGV no result line 
+  run 3: exit SIGSEGV no result line 
+not run: Linux SignalContextMiss, AT_PHDR exe entry, refresh on miss (compiled only)
+cache-check: FAIL (C4 grace-period)
+exit 1

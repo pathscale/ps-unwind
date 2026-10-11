@@ -144,29 +144,25 @@ src/cache.rs holds a sorted array of loaded images (range plus the slid
 addresses of the unwind sections) behind one `AtomicPtr`. Crash handlers
 cannot lock or allocate, so:
 
-- Readers: one SeqCst increment of a global reader count, one load of the
-  pointer, a binary search, a copy of the entry, one Release decrement. No
-  allocation, no lock, no call.
+- Readers: pin the ps-reclaim `Domain` through one `ReaderSlot` that the
+  constructor registers (`Domain::pin_reader`: at most 4 compare-and-swaps
+  or one `fetch_add`, and a fence), one load of the pointer, a binary
+  search, a copy of the entry, and one store to drop the pin. No
+  allocation, no lock, no thread-local storage, no call: async-signal-safe
+  from any thread, also in a handler that interrupted a lookup on its own
+  thread.
 - Writers hold a spin lock, copy the array, change it, swap it in with
-  SeqCst, and retire the old array into a ps-reclaim `Domain`. After the
-  swap a writer runs `Domain::advance` only when it reads the reader count
-  as 0: a reader that could hold an old array loaded it while counted, and
-  a reader counted later loads the new one. Otherwise the old arrays stay
-  queued for the next writer (bounded by unload frequency; tools/cache-check
-  shows 1 to 18 queued after 6000 swaps under 3 busy readers).
-- ps-reclaim access: crates.io ps-reclaim 0.1.4 (`^0.1`,
-  `default-features = false`, features `spin-garbage` and `libc`, because
-  0.1.4 without `std` does not enable the optional `spin` and `libc` it
-  then needs and fails to compile). Readers do not pin: the first
-  `Domain::pin` on a thread registers it, which takes the registry lock (a
-  spin lock without std), creates a pthread key and allocates. A crash
-  handler on a thread that never pinned would allocate, and one that
-  interrupted its own thread inside registration would spin forever. So
-  ps-reclaim provides the retire queue and its epoch scan on the writer
-  side, and the reader count is the grace period. check-nostd R6 fails if
-  any pthread import (the pin path) is linked. If ps-reclaim gains an
-  explicit, allocation-free pin for pre-registered threads, readers could
-  pin instead of counting.
+  SeqCst, retire the old array into the `Domain` and run `Domain::advance`,
+  which frees a retired array only once no reader pinned before the swap
+  is still pinned (tools/cache-check C4: 0 or 1 queued after 6000 swaps
+  under 3 busy readers).
+- ps-reclaim access: crates.io ps-reclaim `^0.1` with
+  `default-features = false` alone (0.1.5 builds `no_std` that way and has
+  `ReaderSlot`). `ReaderSlot::register` may lock and allocate, so it runs
+  in the constructor, outside signal context. Readers never use
+  `Domain::pin`: its first pin on a thread registers the thread, which
+  takes the registry lock, creates a pthread key and allocates; check-nostd
+  R6 fails if any pthread import (that path) is linked.
 - Darwin fill: a constructor in `__DATA,__mod_init_func` builds the cache
   before main by registering `_dyld_register_func_for_add_image` and
   `_dyld_register_func_for_remove_image`. dyld calls the add callback for
@@ -194,19 +190,11 @@ cannot lock or allocate, so:
   through it is a use after unmap, as with the platform unwinders.
 - Verified on Darwin by tools/cache-check.ts (C1 constructor-built and
   complete, C2 add-image, C3 remove-image, C4 grace period under
-  MallocScribble), each with a planted defect.
-
-### Reader counter: to be replaced
-
-Readers use the global `READERS` counter because ps-reclaim 0.1.4 has no
-signal-safe pin. ps-reclaim branch `no-std-and-reader-slot` (not released)
-adds `ReaderSlot` / `Domain::pin_reader`: lock-free, allocation-free,
-async-signal-safe, one `static` slot for every thread; and builds `no_std`
-with `default-features = false` alone. Once that is released, the cache
-registers one slot in its constructor, `lookup` pins through it instead of
-`READERS`, writers drop their `READERS == 0` wait for `advance`, and the
-`spin-garbage`/`libc` features in Cargo.toml go. Not switched now: no
-released version has it.
+  MallocScribble), each with a planted defect. The pin path has two:
+  a lookup that does not pin fails C4 (SIGSEGV on a freed array), and a
+  lookup that pins with `Domain::pin` fails check-nostd R6 (pthread
+  imports) (transcripts/cache-defect-unpinned.txt,
+  transcripts/cache-defect-pin.txt).
 
 ## Signal frames
 

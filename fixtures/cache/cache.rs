@@ -16,7 +16,7 @@ fn stats(tag: &str) {
     let mut s = [0usize; 6];
     unsafe { ps_unwind_cache_stats(s.as_mut_ptr()) };
     let images = unsafe { _dyld_image_count() };
-    println!("{tag} entries={} publishes={} freed={} pending={} readers={} signal={} dyld_images={images}", s[0], s[1], s[2], s[3], s[4], s[5]);
+    println!("{tag} entries={} publishes={} freed={} pending={} slot={} signal={} dyld_images={images}", s[0], s[1], s[2], s[3], s[4], s[5]);
 }
 
 fn enclosing(tag: &str, f: *mut c_void) {

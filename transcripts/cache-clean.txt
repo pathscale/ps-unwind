@@ -1,16 +1,17 @@
-start entries=45 publishes=1 freed=0 pending=0 readers=0 signal=0 dyld_images=45
-opened entries=46 publishes=2 freed=1 pending=0 readers=0 signal=0 dyld_images=46
-opened fn=0x1043a8320 enclosing=0x1043a8320 last_failure=0
+$ bun tools/cache-check.ts
+start entries=45 publishes=1 freed=0 pending=0 slot=1 signal=0 dyld_images=45
+opened entries=46 publishes=2 freed=1 pending=0 slot=1 signal=0 dyld_images=46
+opened fn=0x10272c320 enclosing=0x10272c320 last_failure=0
 dlclose rc=0
-closed entries=45 publishes=3 freed=2 pending=0 readers=0 signal=0 dyld_images=45
-closed fn=0x1043a8320 enclosing=0x0 last_failure=1
+closed entries=45 publishes=3 freed=2 pending=0 slot=1 signal=0 dyld_images=45
+closed fn=0x10272c320 enclosing=0x0 last_failure=1
 PASS C1 ctor-built: before main: entries 45, dyld images 45, publishes 1
-PASS C2 add-image: after dlopen: entries 46, dyld images 46, plug_fn 0x1043a8320, enclosing 0x1043a8320
+PASS C2 add-image: after dlopen: entries 46, dyld images 46, plug_fn 0x10272c320, enclosing 0x10272c320
 PASS C3 remove-image: fixture exit 0; after dlclose: entries 45, dyld images 45, enclosing 0x0, last failure 1 (1 = NoImage), freed 2
 PASS C4 grace-period: 
-  run 1: exit 0 lookups 4111206 wrong 0 entries=45 publishes=6001 freed=5992 pending=8 readers=0 signal=0 dyld_images=45
-  run 2: exit 0 lookups 4109134 wrong 0 entries=45 publishes=6001 freed=5999 pending=1 readers=0 signal=0 dyld_images=45
-  run 3: exit 0 lookups 4157486 wrong 0 entries=45 publishes=6001 freed=5998 pending=2 readers=0 signal=0 dyld_images=45
+  run 1: exit 0 lookups 4898393 wrong 0 entries=45 publishes=6001 freed=5999 pending=1 slot=1 signal=0 dyld_images=45
+  run 2: exit 0 lookups 4898332 wrong 0 entries=45 publishes=6001 freed=6000 pending=0 slot=1 signal=0 dyld_images=45
+  run 3: exit 0 lookups 4868149 wrong 0 entries=45 publishes=6001 freed=6000 pending=0 slot=1 signal=0 dyld_images=45
 not run: Linux SignalContextMiss, AT_PHDR exe entry, refresh on miss (compiled only)
 cache-check: PASS
 exit 0
