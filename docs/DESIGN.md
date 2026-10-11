@@ -1,5 +1,13 @@
 # ps-unwind design
 
+Why: ps-unwind exists so that a Rust program on Linux has exactly one
+unwinder and no gcc runtime, so that code that never unwinds pays only for
+the image cache and compact tables, and so that a crash handler gets a walk
+from the faulting instruction that takes no lock and allocates nothing, with
+a named reason when it stops. What it is not, who it is for, and the command
+behind each number:
+[README.md, "Why ps-unwind"](../README.md#why-ps-unwind).
+
 ps-unwind provides the `_Unwind_*` boundary that Rust `panic_unwind`, the
 personality routine and `std::backtrace` call, for Rust programs, including
 ones whose compiler emits the EKO table (docs/FORMAT.md). It is `#![no_std]`, allocates nothing, and reaches
@@ -358,3 +366,25 @@ linked ahead of the system cannot do.
 - wasmtime-internal-unwinder 49.0.2: call sites keyed by return-address offset
   in a sorted, mmap-ready table, the same choice the EKO handler table makes.
 - pe-unwind-info 0.6.1: Windows UNWIND_INFO, for the scope decision above.
+
+### Relation to libgcc, LLVM libunwind and unwinding
+
+ps-unwind implements the `_Unwind_*` interface that libgcc_s and LLVM
+libunwind provide and that the unwinding crate implements in Rust. On Linux
+it takes the place of libgcc_s (gnu) or libunwind.a (musl), which rustc
+links by default (check-linux-link L2, L3; "Linking" above). Beyond the
+`__kernel_rt_sigreturn` match ("Signal frames"), this design was not
+compared against the libgcc and LLVM libunwind sources, so this section
+does not rank them. The parts that are specific to ps-unwind, each with its
+check:
+
+- The EKO table, version 2 replacing `.eh_frame` and the LSDA on Linux at
+  0.51 to 0.54 of their size (docs/FORMAT.md; tools/eko2.ts).
+- A crash-handler API, `ps_unwind_backtrace_ucontext` with
+  `ps_unwind_signal_enter`/`ps_unwind_signal_leave` (tools/signal-check.ts).
+- A lock-free image cache read through a pre-registered ps-reclaim
+  `ReaderSlot` ("Image cache"; tools/cache-check.ts, check-nostd R6).
+- Named failures with the stopping pc, `ps_unwind_last_failure`
+  ("Failures"; src/failure.rs).
+- Its own crtbegin/crtend, so no gcc runtime and no `__register_frame_info`
+  registration is linked (docs/CRT.md; tools/check-crt.ts).
