@@ -5,6 +5,100 @@ Rust programs. It exports the 14
 `_Unwind_*` entry points Rust std uses plus a 5-call crash-handler API, reads Apple compact unwind, DWARF CFI
 and the EKO compact table (docs/FORMAT.md), and needs nothing from the platform but `libc`.
 
+## Why ps-unwind
+
+Each number below names the command or source file it comes from; the
+transcripts are in transcripts/.
+
+### Why we built it
+
+- Code that never unwinds pays for the tables, not for the unwinder. The
+  only work before something raises or walks the stack is the image cache:
+  built once by a constructor at load and updated on `dlopen`/`dlclose`
+  (src/cache.rs). On Linux an EKO version 2 table can replace `.eh_frame` and
+  the LSDA of the functions it covers. For a whole std program it is 0.511
+  (aarch64 musl) and 0.539 (x86_64 musl) of their size, and for the
+  landing-pad fixtures 0.521 and 0.573 (`bun tools/eko2.ts`, Z2 and Z1). It
+  gives the same CFA, return address and saved registers as `.eh_frame` at
+  every instruction of 784 of 784 and 686 of 688 functions (E2; the other 2
+  use `DW_CFA_GNU_args_size` and keep `.eh_frame`), so a crash walk can start
+  at any instruction, mid-prologue and mid-epilogue included
+  (`bun tools/signal-check.ts` SG2, FL3, run on Darwin). These tables are
+  generated from each image's `.eh_frame` and LSDA by tools/eko2-gen.ts, and
+  the Linux images are decoded here, not run.
+- One unwinder per process on Linux. rustc links libgcc_s (gnu) or
+  libunwind.a (musl) by default. With the documented link line every
+  `_Unwind_*` that std, the program and the start objects import is defined
+  by ps-unwind (`bun tools/check-linux-link.ts` L1), and the musl link has no
+  libunwind.a member and each `_Unwind_*` symbol defined once (L2). With the
+  crtbegin/crtend objects of this repository, gcc's are
+  not on the link line, nothing calls `__register_frame_info`, and no libgcc
+  or libgcc_s is NEEDED (`bun tools/check-crt.ts` C1 to C4). These pass for
+  musl; the glibc links (L3, and check-crt C1 to C3 on gnu) are not run here.
+- Small and `#![no_std]`. Crate dependencies: `libc` and `ps-reclaim`. The
+  linked object imports only allowed libc and loader functions (allocator,
+  `write`, `abort`, `memcpy`/`memmove`, the dyld image callbacks on Darwin,
+  `getauxval` and `dl_iterate_phdr` on Linux, plus `memset` and the
+  compiler_builtins outline atomics on aarch64 Linux; rule R4) and exports
+  exactly the 14 `_Unwind_*` functions Rust std imports plus 5
+  `ps_unwind_*` functions (R5; `bun tools/check-nostd.ts`). Text: 28798 B on
+  aarch64-apple-darwin, 30318 B to 31737 B on Linux (`bun tools/sizes.ts lib`).
+- Crash handlers get the faulting frame. `ps_unwind_backtrace_ucontext` walks
+  from the register state the signal interrupted, so the first frame is the
+  faulting instruction itself (signal-check FL1, FL2, SG2). Walking out of a
+  handler with `_Unwind_Backtrace` on Darwin goes through `_sigtramp`, and
+  there the system unwinder (and ps-unwind, which matches it) continues at
+  the caller of the interrupted function and never reports the interrupted
+  frame (signal-check SG1; docs/DESIGN.md, "Signal frames"). Between
+  `ps_unwind_signal_enter()` and `ps_unwind_signal_leave()` the walk takes no
+  lock, allocates nothing and makes no syscall: image lookups pin the
+  lock-free image cache through a ps-reclaim `ReaderSlot` registered at load,
+  and a pc the cache does not hold is refused with `SignalContextMiss`
+  instead of filling the cache (src/cache.rs; the planted pin defects fail
+  `bun tools/cache-check.ts` C4 and `bun tools/check-nostd.ts` R6).
+- A stop has a name. When a walk stops at a frame it cannot read,
+  `ps_unwind_last_failure(&pc)` returns which of the 26 failures in
+  src/failure.rs it was and the pc (signal-check EA1: `EkoAsyncFrame`, 25).
+  The record is process-global and is not cleared when a walk starts (see
+  "Crash handlers" below).
+- The checks above fail by name on planted defects: `bun tools/defects.ts`,
+  the `--plant` modes of eh.ts, eko2.ts and signal-check.ts, the check-crt
+  plants, and the cache, link and signal defect transcripts. The sizes are
+  measurements, not checks.
+
+### What it is not
+
+- Not the only unwinder on Darwin. libSystem keeps its own; C++ exceptions
+  thrown in system dylibs and external readers (ReportCrash, Instruments,
+  lldb, `backtrace(3)`) use it and the standard tables. ps-unwind serves the
+  `_Unwind_*` references of the image it is linked into (`bun tools/eh.ts`
+  G5). `__unwind_info`, `__eh_frame` and the LSDA stay, and no EKO table is
+  emitted there (`bun tools/check-darwin-tables.ts IMAGE --no-eko`, D3;
+  docs/DESIGN.md, "Two unwinders on Darwin, accepted" and "No EKO table on
+  Darwin").
+- Not for Windows, which unwinds through the OS (docs/DESIGN.md, "Windows is
+  out of scope").
+- Not run on Linux yet. Every check above runs on an aarch64-apple-darwin host.
+  The Linux musl builds are linked and link-checked, the gnu builds are
+  compiled only (no glibc sysroot here), and no Linux binary has been
+  executed (docs/TARGETS.md).
+
+### Who should adopt it
+
+- Rust programs that want static or dependency-light binaries without
+  libgcc_s or libunwind.a.
+- Crash reporters and runtimes that need a backtrace from a signal handler.
+- Compiler authors: the EKO table (docs/FORMAT.md) is documented and
+  versioned. Version 2 describes every instruction of the functions it covers
+  in 0.44 to 0.57 of the bytes of their `.eh_frame` FDEs plus LSDA
+  (`bun tools/eko2.ts`, E1, E2, Z1, Z2).
+
+To adopt: build with `./tools/build.sh [triple]`, then force-load the
+archive on Darwin (Use, below) or, on Linux, link with
+`-L native=target/dist/<triple> -l static:+whole-archive=ps_unwind` and the
+start objects (Linux start objects, below). How it relates to libgcc, LLVM
+libunwind and the unwinding crate: docs/DESIGN.md, "Prior art read".
+
 - docs/DESIGN.md: how it works, shortcuts and their proofs, open problems, link lines
 - docs/FORMAT.md: the EKO compact unwind table, versions 1 and 2
 - docs/TARGETS.md: what runs, what only compiles
