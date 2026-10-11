@@ -1,0 +1,13 @@
+$ bun tools/sizes.ts lib
+aarch64-apple-darwin         libps_unwind.a 49320 B, ps_unwind.o 48576 B, text 25342 data 680 bss 0
+aarch64-unknown-linux-gnu    libps_unwind.a 78246 B, ps_unwind.o 77632 B, text 26903 data 504 bss 166
+aarch64-unknown-linux-musl   libps_unwind.a 78222 B, ps_unwind.o 77608 B, text 26903 data 504 bss 166
+x86_64-unknown-linux-gnu     libps_unwind.a 77350 B, ps_unwind.o 76736 B, text 27634 data 504 bss 166
+x86_64-unknown-linux-musl    libps_unwind.a 77366 B, ps_unwind.o 76752 B, text 27633 data 504 bss 166
+$ bun tools/sizes.ts image target/mixed/mixed
+image target/mixed/mixed
+  functions 714, with LSDA 156, with landing pads 156, landing-pad call sites 435
+  __eh_frame 29268 + __gcc_except_tab 5244 = 34512 B (plus __unwind_info 5808 B)
+  EKO v1 for the same functions: 16 + 16*714 + 4*156 + 12*435 = 17284 B
+  Linux, EKO replaces CFI + LSDA of EKO functions: ratio EKO / (__eh_frame + __gcc_except_tab) = 0.501
+  Darwin, EKO is added (the platform tables stay): 40320 + 17284 = 57604 B, +42.9% unwind data

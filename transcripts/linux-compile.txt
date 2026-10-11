@@ -1,0 +1,24 @@
+== aarch64-unknown-linux-gnu (compiled, not run)
+nm -a target/aarch64-unknown-linux-gnu/release/libps_unwind.a: 8812 lines, 0 std symbols
+nm -a target/dist/aarch64-unknown-linux-gnu/libps_unwind.a: 205 lines, 0 std symbols
+imports: abort dl_iterate_phdr memcpy write
+exports: 13
+check-nostd: PASS
+== aarch64-unknown-linux-musl (compiled, not run)
+nm -a target/aarch64-unknown-linux-musl/release/libps_unwind.a: 9119 lines, 0 std symbols
+nm -a target/dist/aarch64-unknown-linux-musl/libps_unwind.a: 205 lines, 0 std symbols
+imports: abort dl_iterate_phdr memcpy write
+exports: 13
+check-nostd: PASS
+== x86_64-unknown-linux-gnu (compiled, not run)
+nm -a target/x86_64-unknown-linux-gnu/release/libps_unwind.a: 3819 lines, 0 std symbols
+nm -a target/dist/x86_64-unknown-linux-gnu/libps_unwind.a: 124 lines, 0 std symbols
+imports: abort dl_iterate_phdr memcpy write
+exports: 13
+check-nostd: PASS
+== x86_64-unknown-linux-musl (compiled, not run)
+nm -a target/x86_64-unknown-linux-musl/release/libps_unwind.a: 3852 lines, 0 std symbols
+nm -a target/dist/x86_64-unknown-linux-musl/libps_unwind.a: 124 lines, 0 std symbols
+imports: abort dl_iterate_phdr memcpy write
+exports: 13
+check-nostd: PASS

@@ -1,0 +1,20 @@
+$ bun tools/check-nostd.ts 
+imports: _dyld_register_func_for_add_image _dyld_register_func_for_remove_image abort free malloc memcpy memmove posix_memalign write
+exports: 19
+check-nostd: PASS
+$ bun tools/check-nostd.ts x86_64-unknown-linux-gnu
+imports: abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
+exports: 19
+check-nostd: PASS
+$ bun tools/check-nostd.ts aarch64-unknown-linux-gnu
+imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove memset posix_memalign write
+exports: 19
+check-nostd: PASS
+$ bun tools/check-nostd.ts x86_64-unknown-linux-musl
+imports: abort dl_iterate_phdr free getauxval malloc memcpy memmove posix_memalign write
+exports: 19
+check-nostd: PASS
+$ bun tools/check-nostd.ts aarch64-unknown-linux-musl
+imports: __aarch64_cas1_acq __aarch64_cas1_acq_rel __aarch64_cas8_acq_rel __aarch64_cas8_relax __aarch64_ldadd8_acq_rel __aarch64_ldadd8_rel __aarch64_ldadd8_relax __aarch64_swp8_acq_rel abort dl_iterate_phdr free getauxval malloc memcpy memmove memset posix_memalign write
+exports: 19
+check-nostd: PASS
