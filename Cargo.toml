@@ -23,6 +23,11 @@ libc = { version = "^0", default-features = false }
 # and libc dependencies, so they are named here (spin-garbage pulls spin).
 ps-reclaim = { version = "^0.1", default-features = false, features = ["spin-garbage", "libc"] }
 
+# tools/eko-dump.rs: dumps EKO tables through the reader for tools/eko2.ts.
+[[example]]
+name = "eko-dump"
+path = "tools/eko-dump.rs"
+
 [features]
 default = []
 # Defines a #[panic_handler] that aborts. Required for the staticlib, built with

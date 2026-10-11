@@ -1,0 +1,13 @@
+plant aarch64-apple-darwin: wrong-cfa: _eh_absorber_frame +0x4: CFA=reg31+32 planted as CFA=reg31+48
+FAIL E1 aarch64-apple-darwin: 23 functions (23 generated, skipped: none), 1251 code units compared (every instruction; on x86_64 every byte), 1 differ
+    _eh_absorber_frame +0x4: v2 CFA=reg31+48; .eh_frame CFA=reg31+32
+PASS H1 aarch64-apple-darwin: 98 handler rows found by eko::handler2 at every return offset, 0 functions differ from the LSDA derivation
+plant aarch64-unknown-linux-musl: wrong-cfa: eh_absorber_frame +0x4: CFA=reg31+32 planted as CFA=reg31+48
+FAIL E1 aarch64-unknown-linux-musl: 23 functions (23 generated, skipped: none), 1261 code units compared (every instruction; on x86_64 every byte), 1 differ
+    eh_absorber_frame +0x4: v2 CFA=reg31+48; .eh_frame CFA=reg31+32
+PASS H1 aarch64-unknown-linux-musl: 93 handler rows found by eko::handler2 at every return offset, 0 functions differ from the LSDA derivation
+plant x86_64-unknown-linux-musl: wrong-cfa: eh_absorber_frame +0x1: CFA=reg7+16: reg3=[CFA-16], reg16=[CFA-8] planted as CFA=reg7+32: reg3=[CFA-16], reg16=[CFA-8]
+FAIL E1 x86_64-unknown-linux-musl: 23 functions (23 generated, skipped: none), 4985 code units compared (every instruction; on x86_64 every byte), 1 differ
+    eh_absorber_frame +0x1: v2 CFA=reg7+32: reg3=[CFA-16], reg16=[CFA-8]; .eh_frame CFA=reg7+16: reg3=[CFA-16], reg16=[CFA-8]
+PASS H1 x86_64-unknown-linux-musl: 98 handler rows found by eko::handler2 at every return offset, 0 functions differ from the LSDA derivation
+eko2: 3 pass, 3 fail, plant wrong-cfa; failed: E1 aarch64-apple-darwin, E1 aarch64-unknown-linux-musl, E1 x86_64-unknown-linux-musl
