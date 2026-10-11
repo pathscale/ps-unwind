@@ -27,13 +27,20 @@
 // path is the one taken. It does not show an image without standard tables
 // works: on Darwin those stay (docs/DESIGN.md), on Linux nothing runs here.
 //
-// Usage: bun tools/eh.ts [--plant NAME] [--lib path] [--no-lldb] [--no-linux]
+// --format 2 runs all of it with EKO version 2 tables (tools/eko2-gen.ts):
+// G3 then also requires the v2 states to equal .eh_frame at every
+// instruction, and the plants are eko2-gen plants (wrong-pad, no-restore).
+//
+// Usage: bun tools/eh.ts [--format 2] [--plant NAME] [--lib path] [--no-lldb] [--no-linux]
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { decode, derive, ekoBytes, emit, fdes, llvm, plant, section } from "./eko-gen.ts";
+import { derive as derive2, dump, emit as emit2, equiv, fnBytes, image, layout, plant as plant2, type Fn2 } from "./eko2-gen.ts";
 
 const root = resolve(import.meta.dir, "..");
-const out = join(root, "target/eh");
+// --format 2: the same suite with EKO version 2 tables (tools/eko2-gen.ts).
+const v2 = process.argv.includes("--format") && process.argv[process.argv.indexOf("--format") + 1] === "2";
+const out = join(root, v2 ? "target/eh2" : "target/eh");
 const tmp = join(root, "target/tmp");
 mkdirSync(out, { recursive: true });
 mkdirSync(tmp, { recursive: true });
@@ -62,8 +69,11 @@ function build(o: string, eko: string | null, ps: boolean) {
 
 const p1 = join(out, "pass1"), sys = join(out, "sys"), ps = join(out, "ps"), ekoS = join(out, "eko.s");
 let berr = build(p1, null, false);
-const d = berr ? null : derive(p1);
-if (d) writeFileSync(ekoS, emit(d.recs));
+const asRecs = (fns: Fn2[]) => fns.map((f) => ({ name: f.name, start: f.start, length: f.length, frame: 0, rows: f.handlers }));
+const d1 = berr ? null : derive(p1);
+const g2 = !d1 || !v2 ? null : derive2(image(p1), "eh_");
+const d = !d1 ? null : g2 ? { recs: asRecs(g2.fns), skipped: g2.skipped } : d1;
+if (d) writeFileSync(ekoS, g2 ? emit2(image(p1), g2.fns) : emit(d.recs));
 berr ||= build(sys, ekoS, false) || build(ps, ekoS, true);
 report("G1 build", berr ? "FAIL" : "PASS", berr || "pass1, sys and ps built with the public rustc");
 if (berr || !d) process.exit(1);
@@ -77,13 +87,29 @@ report("G5 binding", defined && bound ? "PASS" : "FAIL", `ps defines _Unwind_Rai
 
 const actions = [0, 1, 2].map((a) => d.recs.reduce((n, r) => n + r.rows.filter((x) => x.action === a).length, 0));
 report("G2 eko-records", d.recs.length > 0 && actions.every((n) => n > 0) ? "PASS" : "FAIL",
-  `${d.recs.length} records, rows: ${actions[0]} cleanup, ${actions[1]} catch, ${actions[2]} terminate; ${ekoBytes(d.recs)} bytes; skipped: ${d.skipped.join("; ") || "none"}`);
+  `${d.recs.length} records, rows: ${actions[0]} cleanup, ${actions[1]} catch, ${actions[2]} terminate; ${g2 ? layout(image(p1).arch, g2.fns).size : ekoBytes(d.recs)} bytes${v2 ? " (version 2)" : ""}; skipped: ${d.skipped.join("; ") || "none"}`);
 
-const fresh = derive(ps).recs;
-const back = decode(ps);
+const freshFns = v2 ? derive2(image(ps), "eh_").fns : [];
+const fresh = v2 ? asRecs(freshFns) : derive(ps).recs;
+// Version 2: read the table back through the reader (tools/eko-dump.rs) and
+// also require its states to equal .eh_frame at every instruction.
+const v2fails: string[] = [];
+function back2() {
+  const b = run(["cargo", "build", "--release", "--example", "eko-dump"]);
+  if (b.code !== 0) { v2fails.push(`eko-dump build: ${b.err}`); return []; }
+  const sec = section(ps, "__eko_unwind");
+  const bin = join(out, "eko2.bin");
+  writeFileSync(bin, new Uint8Array(sec.bytes));
+  const dd = dump(join(root, "target/release/examples/eko-dump"), bin, sec.addr, "raw");
+  const names = new Map(freshFns.map((f) => [f.start, f.name]));
+  v2fails.push(...equiv(image(ps), dd, (a) => names.get(a) ?? `0x${a.toString(16)}`).fails);
+  return dd.map((x) => ({ name: "", start: x.start, length: x.length, frame: 0, rows: x.rows.map((r) => r.split(" ").map(Number)).map(([ret, pad, action]) => ({ ret, pad, action })) }));
+}
+const back = v2 ? back2() : decode(ps);
 const key = (r: { start: bigint; length: number; frame: number; rows: { ret: number; pad: number; action: number }[] }) =>
   `${r.start.toString(16)} ${r.length} ${r.frame.toString(16)} ${[...r.rows].sort((a, b) => a.ret - b.ret).map((x) => `${x.ret}:${x.pad}:${x.action}`).join(",")}`;
 const diff = fresh.map(key).filter((k, i) => k !== (back[i] ? key(back[i]) : ""));
+diff.push(...v2fails);
 report("G3 eko-roundtrip", !planted && fresh.length === back.length && diff.length === 0 ? "PASS" : planted ? "NOT RUN" : "FAIL",
   planted ? "plant run" : `${back.length} records in the ps image, ${diff.length} differ from a fresh derivation${diff.length ? `: ${diff.slice(0, 3).join(" | ")}` : ""}`);
 
@@ -93,9 +119,10 @@ report("G4 darwin-tables", dt.code === 0 ? "PASS" : "FAIL", dt.out.trim().split(
 let psBin = ps;
 if (planted) {
   const recs = derive(p1).recs;
-  const what = plant(recs, planted);
+  const p2 = v2 ? derive2(image(p1), "eh_").fns : [];
+  const what = v2 ? plant2(image(p1).arch, p2, planted) : plant(recs, planted);
   const s = join(out, `eko-${planted}.s`);
-  writeFileSync(s, emit(recs));
+  writeFileSync(s, v2 ? emit2(image(p1), p2) : emit(recs));
   psBin = join(out, `ps-${planted}`);
   const e = build(psBin, s, true);
   console.log(`plant ${what}${e ? `\nFAIL build ${e}` : ""}`);
@@ -168,17 +195,19 @@ if (!planted) {
   const lsdaLen = (a: bigint) => Number((starts.find((s) => s > a) ?? tabEnd) - a);
   let eh = 0, ex = 0;
   const lines: string[] = [];
+  const lay = v2 ? layout(image(ps).arch, freshFns) : null;
+  const v2Bytes = new Map(freshFns.map((x, i) => [x.start, fnBytes(lay!.descs[i])]));
   for (const r of fresh) {
     const x = f.get(r.start);
     const e = fdeLen.get(r.start) ?? 0;
     const g = x?.lsda != null ? lsdaLen(x.lsda) : 0;
-    const k = 16 + (r.rows.length ? 4 + 12 * r.rows.length : 0);
+    const k = v2 ? v2Bytes.get(r.start)! : 16 + (r.rows.length ? 4 + 12 * r.rows.length : 0);
     eh += e; ex += g;
     lines.push(`  ${r.name.padEnd(22)} __eh_frame ${String(e).padStart(4)}  __gcc_except_tab ${String(g).padStart(4)}  EKO ${String(k).padStart(4)}`);
   }
-  const ek = ekoBytes(fresh);
+  const ek = lay ? lay.size : ekoBytes(fresh);
   writeFileSync(join(out, "sizes.txt"), lines.join("\n") + "\n");
-  report("S1 sizes", "PASS", `${fresh.length} functions: __eh_frame FDEs ${eh} B + __gcc_except_tab ${ex} B = ${eh + ex} B; EKO ${ek} B (16 B chunk header included), ratio ${(ek / (eh + ex)).toFixed(3)}; CIEs and __unwind_info not counted\n${lines.join("\n")}`);
+  report("S1 sizes", "PASS", `${fresh.length} functions: __eh_frame FDEs ${eh} B + __gcc_except_tab ${ex} B = ${eh + ex} B; EKO ${ek} B (16 B chunk header included${v2 ? ", version 2" : ""}), ratio ${(ek / (eh + ex)).toFixed(3)}; CIEs and __unwind_info not counted\n${lines.join("\n")}`);
 }
 
 if (!planted && !process.argv.includes("--no-linux")) {
@@ -190,7 +219,7 @@ if (!planted && !process.argv.includes("--no-linux")) {
       : [...base, "--target", t, "--emit=obj", "-o", `${o}.o`];
     const r = run(cmd);
     if (r.code !== 0) report(`L ${t}`, "FAIL", r.err.split("\n").slice(0, 6).join("\n"));
-    else report(`L ${t}`, "NOT RUN", musl ? "linked statically with ps_unwind (rust-lld); not run, no Linux machine; no EKO chunk (eko-gen reads Mach-O only)" : "compiled to an object; not linked (no glibc sysroot, docs/TARGETS.md) and not run");
+    else report(`L ${t}`, "NOT RUN", musl ? `linked statically with ps_unwind (rust-lld); not run, no Linux machine; ${v2 ? "its v2 table is generated and decoded by tools/eko2.ts E1/H1" : "no EKO chunk (eko-gen reads Mach-O only)"}` : "compiled to an object; not linked (no glibc sysroot, docs/TARGETS.md) and not run");
   }
 }
 

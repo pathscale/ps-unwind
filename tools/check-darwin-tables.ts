@@ -68,6 +68,28 @@ for (let c = 0; c + 16 <= bytes.length; ) {
   if (u32(c) === 0) { c += 4; continue; }
   if (u32(c) !== 0x57554b45) { fails.push(`D0 bad EKO header at +${c}`); break; }
   const count = u32(c + 8), size = u32(c + 12);
+  if (bytes[c + 4] === 2) {
+    // Version 2: 12-byte records; landing pads are in the table after the
+    // state program (docs/FORMAT.md, "Version 2").
+    const uleb = (p: { o: number }) => { let v = 0, s = 0, x = 0; do { x = bytes[p.o++]; v += (x & 0x7f) * 2 ** s; s += 7; } while (x & 0x80); return v; };
+    for (let i = 0; i < count; i++) {
+      const r = c + 16 + 12 * i;
+      const s = start + BigInt(r) + BigInt(u32(r) | 0);
+      const data = u32(r + 8);
+      let pads = 0;
+      if (data & 0x80000000) {
+        const p = { o: c + (data & 0x7fffffff) };
+        for (let op = bytes[p.o++]; op !== 0; op = bytes[p.o++]) {
+          if ((op >= 0x80 && op <= 0xc3) || op === 0xc5) uleb(p);
+          else if (op === 0xc4) { uleb(p); uleb(p); }
+        }
+        for (let k = 0, n = uleb(p); k < n; k++) { uleb(p); if (uleb(p) >= 4) pads++; }
+      }
+      funcs.push({ start: s, pads });
+    }
+    c += size;
+    continue;
+  }
   for (let i = 0; i < count; i++) {
     const r = c + 16 + 16 * i;
     const s = start + BigInt(r) + BigInt(u32(r) | 0);
