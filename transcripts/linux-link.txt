@@ -1,0 +1,82 @@
+PASS L1 x86_64-unknown-linux-musl
+    inputs: 25 (crt: crti.o crtbeginS.o crtendS.o crtn.o)
+    needs _Unwind_Backtrace <- libstd.rlib
+    needs _Unwind_DeleteException <- libpanic_unwind.rlib
+    needs _Unwind_FindEnclosingFunction <- libstd.rlib
+    needs _Unwind_GetCFA <- libstd.rlib
+    needs _Unwind_GetDataRelBase <- libstd.rlib
+    needs _Unwind_GetIP <- libstd.rlib
+    needs _Unwind_GetIPInfo <- libstd.rlib
+    needs _Unwind_GetLanguageSpecificData <- libstd.rlib
+    needs _Unwind_GetRegionStart <- libstd.rlib
+    needs _Unwind_GetTextRelBase <- libstd.rlib
+    needs _Unwind_RaiseException <- libpanic_unwind.rlib
+    needs _Unwind_Resume <- libstd.rlib libpanic_unwind.rlib libobject.rlib libaddr2line.rlib libgimli.rlib liballoc.rlib std-x86_64-unknown-linux-musl.o
+    needs _Unwind_SetGR <- libstd.rlib
+    needs _Unwind_SetIP <- libstd.rlib
+    weak __deregister_frame_info <- crtbeginS.o (left 0)
+    weak __register_frame_info <- crtbeginS.o (left 0)
+PASS L2 x86_64-unknown-linux-musl
+    linked, ps_unwind.o in the map, no libunwind.a member, each _Unwind_ symbol defined once
+PASS L1 aarch64-unknown-linux-musl
+    inputs: 25 (crt: crt1.o crti.o crtbegin.o crtend.o crtn.o)
+    needs _Unwind_Backtrace <- libstd.rlib
+    needs _Unwind_DeleteException <- libpanic_unwind.rlib
+    needs _Unwind_FindEnclosingFunction <- libstd.rlib
+    needs _Unwind_GetCFA <- libstd.rlib
+    needs _Unwind_GetDataRelBase <- libstd.rlib
+    needs _Unwind_GetIP <- libstd.rlib
+    needs _Unwind_GetIPInfo <- libstd.rlib
+    needs _Unwind_GetLanguageSpecificData <- libstd.rlib
+    needs _Unwind_GetRegionStart <- libstd.rlib
+    needs _Unwind_GetTextRelBase <- libstd.rlib
+    needs _Unwind_RaiseException <- libpanic_unwind.rlib
+    needs _Unwind_Resume <- libstd.rlib libpanic_unwind.rlib libobject.rlib libaddr2line.rlib libgimli.rlib libstd_detect.rlib liballoc.rlib std-aarch64-unknown-linux-musl.o
+    needs _Unwind_SetGR <- libstd.rlib
+    needs _Unwind_SetIP <- libstd.rlib
+    weak __deregister_frame_info <- crtbegin.o (left 0)
+    weak __register_frame_info <- crtbegin.o (left 0)
+PASS L2 aarch64-unknown-linux-musl
+    linked, ps_unwind.o in the map, no libunwind.a member, each _Unwind_ symbol defined once
+PASS L1 x86_64-unknown-linux-gnu
+    inputs: 20 (crt: none on this link line)
+    needs _Unwind_Backtrace <- libstd.rlib
+    needs _Unwind_DeleteException <- libpanic_unwind.rlib
+    needs _Unwind_FindEnclosingFunction <- libstd.rlib
+    needs _Unwind_GetCFA <- libstd.rlib
+    needs _Unwind_GetDataRelBase <- libstd.rlib
+    needs _Unwind_GetIP <- libstd.rlib
+    needs _Unwind_GetIPInfo <- libstd.rlib
+    needs _Unwind_GetLanguageSpecificData <- libstd.rlib
+    needs _Unwind_GetRegionStart <- libstd.rlib
+    needs _Unwind_GetTextRelBase <- libstd.rlib
+    needs _Unwind_RaiseException <- libpanic_unwind.rlib
+    needs _Unwind_Resume <- libstd.rlib libpanic_unwind.rlib libobject.rlib libaddr2line.rlib libgimli.rlib liballoc.rlib std-x86_64-unknown-linux-gnu.o
+    needs _Unwind_SetGR <- libstd.rlib
+    needs _Unwind_SetIP <- libstd.rlib
+NOT RUN L3 x86_64-unknown-linux-gnu
+    no x86_64-unknown-linux-gnu-gcc (glibc sysroot, crtbegin.o, libgcc_s) on this machine
+    rust-lld probe: = note: rust-lld: error: unable to find library -lgcc_s
+    install: brew tap messense/macos-cross-toolchains && brew install x86_64-unknown-linux-gnu
+PASS L1 aarch64-unknown-linux-gnu
+    inputs: 20 (crt: none on this link line)
+    needs _Unwind_Backtrace <- libstd.rlib
+    needs _Unwind_DeleteException <- libpanic_unwind.rlib
+    needs _Unwind_FindEnclosingFunction <- libstd.rlib
+    needs _Unwind_GetCFA <- libstd.rlib
+    needs _Unwind_GetDataRelBase <- libstd.rlib
+    needs _Unwind_GetIP <- libstd.rlib
+    needs _Unwind_GetIPInfo <- libstd.rlib
+    needs _Unwind_GetLanguageSpecificData <- libstd.rlib
+    needs _Unwind_GetRegionStart <- libstd.rlib
+    needs _Unwind_GetTextRelBase <- libstd.rlib
+    needs _Unwind_RaiseException <- libpanic_unwind.rlib
+    needs _Unwind_Resume <- libstd.rlib libpanic_unwind.rlib libobject.rlib libaddr2line.rlib libgimli.rlib libstd_detect.rlib liballoc.rlib std-aarch64-unknown-linux-gnu.o
+    needs _Unwind_SetGR <- libstd.rlib
+    needs _Unwind_SetIP <- libstd.rlib
+NOT RUN L3 aarch64-unknown-linux-gnu
+    no aarch64-unknown-linux-gnu-gcc (glibc sysroot, crtbegin.o, libgcc_s) on this machine
+    rust-lld probe: = note: rust-lld: error: unable to find library -lgcc_s
+    install: brew tap messense/macos-cross-toolchains && brew install aarch64-unknown-linux-gnu
+8 checks: 6 pass, 0 fail, 2 not run
+exit 2

@@ -1,0 +1,15 @@
+start entries=45 publishes=1 freed=0 pending=0 readers=0 signal=0 dyld_images=45
+opened entries=46 publishes=2 freed=1 pending=0 readers=0 signal=0 dyld_images=46
+opened fn=0x100c40320 enclosing=0x100c40320 last_failure=0
+dlclose rc=0
+closed entries=46 publishes=2 freed=1 pending=0 readers=0 signal=0 dyld_images=45
+PASS C1 ctor-built: before main: entries 45, dyld images 45, publishes 1
+PASS C2 add-image: after dlopen: entries 46, dyld images 46, plug_fn 0x100c40320, enclosing 0x100c40320
+FAIL C3 remove-image: fixture exit SIGSEGV; after dlclose: entries 46, dyld images 45, enclosing undefined, last failure undefined (1 = NoImage), freed 1
+PASS C4 grace-period: 
+  run 1: exit 0 lookups 3923450 wrong 0 entries=46 publishes=3001 freed=2999 pending=1 readers=0 signal=0 dyld_images=45
+  run 2: exit 0 lookups 4088725 wrong 0 entries=46 publishes=3001 freed=2982 pending=18 readers=0 signal=0 dyld_images=45
+  run 3: exit 0 lookups 3863758 wrong 0 entries=46 publishes=3001 freed=2993 pending=7 readers=0 signal=0 dyld_images=45
+not run: Linux SignalContextMiss, AT_PHDR exe entry, refresh on miss (compiled only)
+cache-check: FAIL (C3 remove-image)
+exit 1

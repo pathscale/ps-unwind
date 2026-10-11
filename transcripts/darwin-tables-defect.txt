@@ -1,0 +1,5 @@
+  _dt_eko: __unwind_info mode none, 1 EKO landing pads, LSDA no
+FAIL D1 EKO function without standard unwind info: _dt_eko
+FAIL D2 EKO function with landing pads but no LSDA: _dt_eko
+check-darwin-tables: 1 EKO functions, FAIL (2)
+exit 1

@@ -1,0 +1,304 @@
+== defect fde-off-by-one: FDE range lookup off by one: the return address itself is used as the lookup key instead of return address minus one
+diff --git a/src/abi.rs b/src/abi.rs
+index ae34ecf..f3587d2 100644
+--- a/src/abi.rs
++++ b/src/abi.rs
+@@ -66,7 +66,7 @@ impl Cursor {
+     /// that function and not to the next one.
+     #[inline]
+     pub fn lookup_pc(&self) -> usize {
+-        if self.ip_before_insn { self.regs.pc } else { self.regs.pc - 1 }
++        if self.ip_before_insn { self.regs.pc } else { self.regs.pc }
+     }
+ 
+     /// Find the tables for the current pc.
+
+-- tools/mixed.ts (exit 1)
+ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B A5 A6 00 00 10 10
+ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
+ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
+ok   S4 eko-section: __eko_unwind 124 bytes
+FAIL R1 regcheck: differs:
+stdout:
+drop rust_raise
+eko pad 2: x19 ok
+drop rust_cmp
+drop rust_b
+dwarf pad: x20 ok d8 ok
+stderr:
+ps-unwind: _Unwind_Resume could not reach the handler
+status: signal SIGABRT
+
+FAIL R2 panic: differs:
+stdout:
+stderr:
+panic: panic through mixed frames
+fatal runtime error: failed to initiate panic, error 3, aborting
+status: signal SIGABRT
+
+FAIL B1 bt-vs-lldb: 0 frames equal; lldb continues with nothing
+
+ok   B2 plain-vs-system: system and ps-unwind _Unwind_Backtrace from main:
+bt 0 _RNvCs1Wh4naWQh8p_5mixed12mode_btplain+0x30
+bt 1 _RNvCs1Wh4naWQh8p_5mixed4main+0x278
+bt 2 _RINvNtNtCs82bWklYMk3w_3std3sys9backtrace28___rust_begin_short_backtraceFEuuECs1Wh4naWQh8p_5mixed+0xc
+bt 3 _RNCINvNtCs82bWklYMk3w_3std2rt10lang_startuE0Cs1Wh4naWQh8p_5mixed+0x10
+bt 4 _RNvNtCs82bWklYMk3w_3std2rt19lang_start_internal+0x3b8
+bt 5 main+0x34
+mixed: FAIL (3)
+
+-- tools/eh.ts (exit 1)
+FAIL C01 pass-through: differs at line 3: sys "caught: relay" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C02 unwind-drops: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C03 two-sites: differs at line 4: sys "drop second panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C04 catch-local: differs at line 3: sys "drop inside closure panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C05 rethrow: differs at line 3: sys "rethrowing" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C07 cleanup-abort: differs at line 3: sys "bomb drop panicking=true" ps "stderr:"; sys signal SIGABRT, ps signal SIGABRT
+FAIL C08 drop-catches: differs at line 3: sys "absorber caught=true panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C09 enum-shapes: differs at line 3: sys "caught: shapes" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C10 drop-flags: differs at line 3: sys "drop x initialised panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C11 shared: differs at line 4: sys "drop arc payload panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C15 uncaught: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 101, ps signal SIGABRT
+eh: 7 pass, 14 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-flags, C11 share
+-- reverted with git checkout -- src/abi.rs; verifiers after revert: PASS
+RESULT fde-off-by-one: caught, clean after revert
+
+== defect 0x9b-decode: DW_EH_PE_indirect ignored, so 0x9b decodes to the GOT slot instead of the personality it holds
+diff --git a/src/mem.rs b/src/mem.rs
+index 3cbc69a..3bc290c 100644
+--- a/src/mem.rs
++++ b/src/mem.rs
+@@ -151,7 +151,7 @@ impl Reader {
+             _ => return Err(Failure::BadPointerEncoding),
+         };
+         let mut value = base.wrapping_add(raw);
+-        if encoding & DW_EH_PE_INDIRECT != 0 {
++        if encoding & DW_EH_PE_INDIRECT != 0 && false {
+             if value == 0 || value % core::mem::align_of::<usize>() != 0 {
+                 return Err(Failure::BadPointerEncoding);
+             }
+
+-- tools/mixed.ts (exit 1)
+ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B A5 A6 00 00 10 10
+ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
+ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
+ok   S4 eko-section: __eko_unwind 124 bytes
+FAIL R1 regcheck: differs:
+stdout:
+raise returned 3
+drop rust_raise
+drop rust_cmp
+raise returned 3
+drop rust_raise
+drop rust_cmp
+raise returned 3
+drop rust_raise
+drop rust_cmp
+raise returned 3
+drop rust_raise
+drop rust_cmp
+raise returned 3
+drop rust_raise
+drop rust_cmp
+raise returned 3
+drop rust_raise
+drop rust_cmp
+drop rust_b
+drop rust_a
+regcheck: no exception caught
+stderr:
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+ps-unwind: PersonalityNotCode pc=0x104a8d094
+status: exit 0
+
+FAIL R2 panic: differs:
+stdout:
+stderr:
+panic: panic through mixed frames
+ps-unwind: PersonalityNotCode pc=0x104ef47b8
+fatal runtime error: failed to initiate panic, error 3, aborting
+status: signal SIGABRT
+
+FAIL B1 bt-vs-lldb: 0 frames equal; lldb continues with nothing
+
+FAIL B2 plain-vs-system: system and ps-unwind _Unwind_Backtrace from main:
+
+mixed: FAIL (4)
+
+-- tools/eh.ts (exit 1)
+FAIL C01 pass-through: differs at line 3: sys "caught: relay" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C02 unwind-drops: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C03 two-sites: differs at line 4: sys "drop second panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C04 catch-local: differs at line 3: sys "drop inside closure panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C05 rethrow: differs at line 3: sys "rethrowing" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C06 nounwind: differs at line 5: sys "fatal runtime error: failed to initiate panic, error 3, aborting" ps "ps-unwind: PersonalityNotCode pc=0x1027170b4"; sys signal SIGABRT, ps signal SIGABRT
+FAIL C07 cleanup-abort: differs at line 3: sys "bomb drop panicking=true" ps "stderr:"; sys signal SIGABRT, ps signal SIGABRT
+FAIL C08 drop-catches: differs at line 3: sys "absorber caught=true panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C09 enum-shapes: differs at line 3: sys "caught: shapes" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C10 drop-flags: differs at line 3: sys "drop x initialised panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C11 shared: differs at line 4: sys "drop arc payload panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C15 uncaught: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 101, ps signal SIGABRT
+FAIL C16 bt-run: differs at line 5: sys "uw off -12004" ps "drop bt leaf panicking=false"; sys exit 0, ps exit 0
+eh: 5 pass, 16 fail, 0 not run; failed: C01 pass-through, C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C06 nounwind, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-fl
+-- reverted with git checkout -- src/mem.rs; verifiers after revert: PASS
+RESULT 0x9b-decode: caught, clean after revert
+
+== defect wrong-call-site: EKO handler lookup returns the landing pad of the previous call site
+diff --git a/src/eko.rs b/src/eko.rs
+index 34ad09b..80aad9b 100644
+--- a/src/eko.rs
++++ b/src/eko.rs
+@@ -188,7 +188,7 @@ pub fn handler(table: usize, ret: u32) -> Result<Option<(u32, u32)>> {
+     let (mut lo, mut hi) = (0usize, count);
+     while lo < hi {
+         let mid = lo + (hi - lo) / 2;
+-        let (r, pad, action) = row(mid);
++        let (r, _, _) = row(mid); let (_, pad, action) = row(mid.saturating_sub(1));
+         if r == ret {
+             if (mid > 0 && row(mid - 1).0 >= r) || (mid + 1 < count && row(mid + 1).0 <= r) {
+                 return Err(Failure::EkoAmbiguousCallSite);
+
+-- tools/mixed.ts (exit 1)
+ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 75 A6 00 00 10 10
+ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
+ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
+ok   S4 eko-section: __eko_unwind 124 bytes
+FAIL R1 regcheck: differs:
+stdout:
+drop rust_raise
+eko pad 1: x19 ok
+drop rust_cmp
+drop rust_b
+dwarf pad: x20 ok d8 ok
+drop rust_a
+regcheck: caught class fixture mask 0x0
+stderr:
+status: exit 0
+
+FAIL R2 panic: differs:
+stdout:
+drop rust_raise
+eko pad 1: x19 ok
+drop rust_cmp
+drop rust_b
+dwarf pad: x20 ok d8 ok
+drop rust_a
+panic: caught Some("panic through mixed frames")
+stderr:
+panic: panic through mixed frames
+status: exit 0
+
+ok   B1 bt-vs-lldb: 14 frames equal; lldb continues with dyld`start
+   0 uw 0x100001058 lldb 0x100001058 mixed`mixed::rust_raise((null)=<unavailable>)
+   1 uw 0x1000009ac lldb 0x1000009ac mixed`fx_eko_cleanup
+   2 uw 0x100001c3c lldb 0x100001c3c mixed`mixed::rust_cmp(a=0x000000016fdfec40,
+   3 uw 0x187820cc8 lldb 0x187820cc8 libsystem_c.dylib`_isort
+   4 uw 0x100001b14 lldb 0x100001b14 mixed`mixed::rust_b((null)=<unavailable>)
+   5 uw 0x100000950 lldb 0x100000950 mixed`fx_dwarf
+   6 uw 0x1000019e0 lldb 0x1000019e0 mixed`mixed::rust_a((null)=<unavailable>)
+   7 uw 0x100000c60 lldb 0x100000c60 mixed`fx_compact
+   8 uw 0x100000aa0 lldb 0x100000aa0 mixed`fx_regcheck
+   9 uw 0x100001618 lldb 0x100001618 mixed`mixed::main
+  10 uw 0x100000d94 lldb 0x100000d94 mixed`std::sys::backtrace::__rust_begin_short_backtrace::<fn(),
+  11 uw 0x100000dac lldb 0x100000dac mixed`std::rt::lang_start::<()>::{closure#0}
+  12 uw 0x10001ba18 lldb 0x10001ba18 mixed`std::rt::lang_start_internal
+  13 uw 0x100001eb4 lldb 0x100001eb4 mixed`main
+  14 uw (stop)      lldb 0x1875c7e00 dyld`start
+ok   B2 plain-vs-system: system and ps-unwind _Unwind_Backtrace from main:
+bt 0 _RNvCs1Wh4naWQh8p_5mixed12mode_btplain+0x30
+bt 1 _RNvCs1Wh4naWQh8p_5mixed4main+0x278
+bt 2 _RINvNtNtCs82bWklYMk3w_3std3sys9backtrace28___rust_begin_short_backtraceFEuuECs1Wh4naWQh8p_5mixed+0xc
+bt 3 _RNCINvNtCs82bWklYMk3w_3std2rt10lang_startuE0Cs1Wh4naWQh8p_5mixed+0x10
+bt 4 _RNvNtCs82bWklYMk3w_3std2rt19lang_start_internal+0x3b8
+bt 5 main+0x34
+mixed: FAIL (2)
+
+-- tools/eh.ts (exit 1)
+FAIL C03 two-sites: differs at line 4: sys "drop second panicking=true" ps "drop first panicking=true"; sys exit 0, ps exit 0
+FAIL C05 rethrow: differs at line 5: sys "caught: u32 41" ps "caught: u32 540160885"; sys exit 0, ps signal SIGTRAP
+FAIL C10 drop-flags: differs at line 5: sys "drop y initialised panicking=true" ps "drop  panicking=true"; sys exit 0, ps exit 0
+FAIL C11 shared: differs at line 4: sys "drop arc payload panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+eh: 15 pass, 6 fail, 0 not run; failed: C03 two-sites, C05 rethrow, C10 drop-flags, C11 shared, C12 niche-some, C13 niche-none
+-- reverted with git checkout -- src/eko.rs; verifiers after revert: PASS
+RESULT wrong-call-site: caught, clean after revert
+
+== defect missing-callee-saved: compact unwind FRAME step does not restore x22 (second register of the x21/x22 pair)
+diff --git a/src/compact.rs b/src/compact.rs
+index 0885803..ab7c354 100644
+--- a/src/compact.rs
++++ b/src/compact.rs
+@@ -198,7 +198,7 @@ fn restore_pairs(encoding: u32, mut loc: usize, next: &mut Regs) {
+         if encoding & bit != 0 {
+             next.x[reg] = unsafe { load::<usize>(loc) };
+             loc -= 8;
+-            next.x[reg + 1] = unsafe { load::<usize>(loc) };
++            if reg + 1 != 22 { next.x[reg + 1] = unsafe { load::<usize>(loc) }; }
+             loc -= 8;
+         }
+     }
+
+-- tools/mixed.ts (exit 1)
+ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B 85 A6 00 00 10 10
+ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
+ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
+ok   S4 eko-section: __eko_unwind 124 bytes
+FAIL R1 regcheck: differs:
+stdout:
+drop rust_raise
+eko pad 2: x19 ok
+drop rust_cmp
+drop rust_b
+dwarf pad: x20 ok d8 ok
+drop rust_a
+regcheck: caught class fixture mask 0x8
+stderr:
+status: exit 0
+
+ok   R2 panic: identical to expected
+ok   B1 bt-vs-lldb: 14 frames equal; lldb continues with dyld`start
+   0 uw 0x100001058 lldb 0x100001058 mixed`mixed::rust_raise((null)=<unavailable>)
+   1 uw 0x1000009ac lldb 0x1000009ac mixed`fx_eko_cleanup
+   2 uw 0x100001c3c lldb 0x100001c3c mixed`mixed::rust_cmp(a=0x000000016fdfec40,
+   3 uw 0x187820cc8 lldb 0x187820cc8 libsystem_c.dylib`_isort
+   4 uw 0x100001b14 lldb 0x100001b14 mixed`mixed::rust_b((null)=<unavailable>)
+   5 uw 0x100000950 lldb 0x100000950 mixed`fx_dwarf
+   6 uw 0x1000019e0 lldb 0x1000019e0 mixed`mixed::rust_a((null)=<unavailable>)
+   7 uw 0x100000c60 lldb 0x100000c60 mixed`fx_compact
+   8 uw 0x100000aa0 lldb 0x100000aa0 mixed`fx_regcheck
+   9 uw 0x100001618 lldb 0x100001618 mixed`mixed::main
+  10 uw 0x100000d94 lldb 0x100000d94 mixed`std::sys::backtrace::__rust_begin_short_backtrace::<fn(),
+  11 uw 0x100000dac lldb 0x100000dac mixed`std::rt::lang_start::<()>::{closure#0}
+  12 uw 0x10001ba18 lldb 0x10001ba18 mixed`std::rt::lang_start_internal
+  13 uw 0x100001eb4 lldb 0x100001eb4 mixed`main
+  14 uw (stop)      lldb 0x1875c7e00 dyld`start
+ok   B2 plain-vs-system: system and ps-unwind _Unwind_Backtrace from main:
+bt 0 _RNvCs1Wh4naWQh8p_5mixed12mode_btplain+0x30
+bt 1 _RNvCs1Wh4naWQh8p_5mixed4main+0x278
+bt 2 _RINvNtNtCs82bWklYMk3w_3std3sys9backtrace28___rust_begin_short_backtraceFEuuECs1Wh4naWQh8p_5mixed+0xc
+bt 3 _RNCINvNtCs82bWklYMk3w_3std2rt10lang_startuE0Cs1Wh4naWQh8p_5mixed+0x10
+bt 4 _RNvNtCs82bWklYMk3w_3std2rt19lang_start_internal+0x3b8
+bt 5 main+0x34
+mixed: FAIL (1)
+
+-- tools/eh.ts (exit 0)
+eh: 21 pass, 0 fail, 0 not run
+-- reverted with git checkout -- src/compact.rs; verifiers after revert: PASS
+RESULT missing-callee-saved: caught, clean after revert
+
+defects: PASS (every planted defect failed a named check and was reverted)

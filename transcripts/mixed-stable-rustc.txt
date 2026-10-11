@@ -1,0 +1,32 @@
+ok   S1 dwarf-mode: _fx_dwarf encoding 0x5300020c
+ok   S2 cie-0x9b: CIE 000001f0 augmentation zPLR data 9B D5 A6 00 00 10 10
+ok   S3 sentinel-next: FDE end 0x100000980 _fx_sentinel 0x100000980
+ok   S5 compact-frame: _fx_compact encoding 0x04000103 (FRAME, x19/x20 x21/x22 d8/d9 pairs)
+ok   S4 eko-section: __eko_unwind 124 bytes
+ok   R1 regcheck: identical to expected
+ok   R2 panic: identical to expected
+ok   B1 bt-vs-lldb: 14 frames equal; lldb continues with dyld`start
+   0 uw 0x100001058 lldb 0x100001058 mixed`mixed::rust_raise((null)=<unavailable>)
+   1 uw 0x1000009ac lldb 0x1000009ac mixed`fx_eko_cleanup
+   2 uw 0x100001c3c lldb 0x100001c3c mixed`mixed::rust_cmp(a=0x000000016fdfec20,
+   3 uw 0x187820cc8 lldb 0x187820cc8 libsystem_c.dylib`_isort
+   4 uw 0x100001b14 lldb 0x100001b14 mixed`mixed::rust_b((null)=<unavailable>)
+   5 uw 0x100000950 lldb 0x100000950 mixed`fx_dwarf
+   6 uw 0x1000019e0 lldb 0x1000019e0 mixed`mixed::rust_a((null)=<unavailable>)
+   7 uw 0x100000c60 lldb 0x100000c60 mixed`fx_compact
+   8 uw 0x100000aa0 lldb 0x100000aa0 mixed`fx_regcheck
+   9 uw 0x100001618 lldb 0x100001618 mixed`mixed::main
+  10 uw 0x100000d94 lldb 0x100000d94 mixed`std::sys::backtrace::__rust_begin_short_backtrace::<fn(),
+  11 uw 0x100000dac lldb 0x100000dac mixed`std::rt::lang_start::<()>::{closure#0}
+  12 uw 0x10001ba18 lldb 0x10001ba18 mixed`std::rt::lang_start_internal
+  13 uw 0x100001eb4 lldb 0x100001eb4 mixed`main
+  14 uw (stop)      lldb 0x1875c7e00 dyld`start
+ok   B2 plain-vs-system: system and ps-unwind _Unwind_Backtrace from main:
+bt 0 _RNvCs1Wh4naWQh8p_5mixed12mode_btplain+0x30
+bt 1 _RNvCs1Wh4naWQh8p_5mixed4main+0x278
+bt 2 _RINvNtNtCs82bWklYMk3w_3std3sys9backtrace28___rust_begin_short_backtraceFEuuECs1Wh4naWQh8p_5mixed+0xc
+bt 3 _RNCINvNtCs82bWklYMk3w_3std2rt10lang_startuE0Cs1Wh4naWQh8p_5mixed+0x10
+bt 4 _RNvNtCs82bWklYMk3w_3std2rt19lang_start_internal+0x3b8
+bt 5 main+0x34
+mixed: PASS
+exit 0

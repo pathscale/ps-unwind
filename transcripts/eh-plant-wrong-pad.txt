@@ -1,0 +1,22 @@
+PASS G1 build: pass1, sys and ps built with the public rustc
+PASS G2 eko-records: 23 records, rows: 34 cleanup, 40 catch, 24 terminate; 1624 bytes; skipped: none
+NOT RUN G3 eko-roundtrip: plant run
+PASS G4 darwin-tables: check-darwin-tables: 23 EKO functions, PASS
+plant wrong-pad: each call given the pad of another call site in 15 functions
+PASS C01 pass-through: identical, 73 bytes, exit 0
+FAIL C02 unwind-drops: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C03 two-sites: differs at line 4: sys "drop second panicking=true" ps "drop first panicking=true"; sys exit 0, ps exit 0
+FAIL C04 catch-local: differs at line 3: sys "drop inside closure panicking=true" ps "local result err=true"; sys exit 0, ps exit 0
+FAIL C05 rethrow: differs at line 3: sys "rethrowing" ps "stderr:"; sys exit 0, ps signal SIGABRT
+PASS C06 nounwind: identical, 124 bytes, signal SIGABRT
+FAIL C07 cleanup-abort: differs at line 3: sys "bomb drop panicking=true" ps "drop before bomb panicking=true"; sys signal SIGABRT, ps exit 0
+FAIL C08 drop-catches: differs at line 3: sys "absorber caught=true panicking=true" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C09 enum-shapes: differs at line 3: sys "caught: shapes" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C10 drop-flags: differs at line 3: sys "drop x initialised panicking=true" ps "drop ????????????????????????????????????????p!?????????????????????????????????"; sys exit 0, ps signal SIGXFSZ
+FAIL C11 shared: differs at line 4: sys "drop arc payload panicking=true" ps "caught: shared"; sys exit 0, ps exit 0
+FAIL C12 niche-some: differs at line 3: sys "drop boxed panicking=true" ps "drop stderr:"; sys exit 0, ps signal SIGTRAP
+FAIL C13 niche-none: differs at line 3: sys "drop inline panicking=true" ps "drop drop drop drop drop drop drop drop drop drop drop drop drop drop drop drop "; sys exit 0, ps signal SIGXFSZ
+FAIL C14 callee-saved: differs at line 3: sys "checksum 0x709c9016688f68cd" ps "stderr:"; sys exit 0, ps signal SIGABRT
+FAIL C15 uncaught: differs at line 3: sys "drop inner panicking=true" ps "stderr:"; sys exit 101, ps signal SIGABRT
+PASS C16 bt-run: identical, 177 bytes, exit 0
+eh: 6 pass, 13 fail, 1 not run, plant wrong-pad; failed: C02 unwind-drops, C03 two-sites, C04 catch-local, C05 rethrow, C07 cleanup-abort, C08 drop-catches, C09 enum-shapes, C10 drop-flags, C11 shared, C12 niche-some, C13 niche-none, C14 callee-saved, C15 uncaught

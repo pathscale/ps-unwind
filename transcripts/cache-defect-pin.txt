@@ -1,0 +1,14 @@
+nm -a target/release/libps_unwind.a: 2328 lines, 0 std symbols
+nm -a target/dist/libps_unwind.a: 169 lines, 0 std symbols
+imports: _dyld_register_func_for_add_image _dyld_register_func_for_remove_image abort free malloc memcpy memmove posix_memalign pthread_getspecific pthread_key_create pthread_key_delete pthread_setspecific write
+exports: 18
+FAIL R4 unexpected import pthread_getspecific
+FAIL R4 unexpected import pthread_key_create
+FAIL R4 unexpected import pthread_key_delete
+FAIL R4 unexpected import pthread_setspecific
+FAIL R6 reader pin path linked: imports pthread_getspecific
+FAIL R6 reader pin path linked: imports pthread_key_create
+FAIL R6 reader pin path linked: imports pthread_key_delete
+FAIL R6 reader pin path linked: imports pthread_setspecific
+check-nostd: FAIL (8)
+exit 1

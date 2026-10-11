@@ -1,0 +1,3 @@
+  _dt_eko: __unwind_info mode DWARF, 1 EKO landing pads, LSDA yes
+check-darwin-tables: 1 EKO functions, PASS
+exit 0

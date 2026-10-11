@@ -1,0 +1,10 @@
+stdout:
+drop rust_raise
+eko pad 2: x19 ok
+drop rust_cmp
+drop rust_b
+dwarf pad: x20 ok d8 ok
+drop rust_a
+regcheck: caught class fixture mask 0x0
+stderr:
+status: exit 0

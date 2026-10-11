@@ -1,0 +1,59 @@
+PASS G1 build: pass1, sys and ps built with the public rustc
+PASS G5 binding: ps defines _Unwind_RaiseException in __TEXT,__text: true; sys binds it from libSystem: true
+PASS G2 eko-records: 23 records, rows: 34 cleanup, 40 catch, 24 terminate; 1624 bytes; skipped: none
+PASS G3 eko-roundtrip: 23 records in the ps image, 0 differ from a fresh derivation
+PASS G4 darwin-tables: check-darwin-tables: 23 EKO functions, PASS
+PASS C01 pass-through: identical, 73 bytes, exit 0
+PASS C02 unwind-drops: identical, 129 bytes, exit 0
+PASS C03 two-sites: identical, 129 bytes, exit 0
+PASS C04 catch-local: identical, 172 bytes, exit 0
+PASS C05 rethrow: identical, 130 bytes, exit 0
+PASS C06 nounwind: identical, 124 bytes, signal SIGABRT
+PASS C07 cleanup-abort: identical, 294 bytes, signal SIGABRT
+PASS C08 drop-catches: identical, 176 bytes, exit 0
+PASS C09 enum-shapes: identical, 256 bytes, exit 0
+PASS C10 drop-flags: identical, 190 bytes, exit 0
+PASS C11 shared: identical, 149 bytes, exit 0
+PASS C12 niche-some: identical, 97 bytes, exit 0
+PASS C13 niche-none: identical, 98 bytes, exit 0
+PASS C14 callee-saved: identical, 161 bytes, exit 0
+PASS C15 uncaught: identical, 105 bytes, exit 101
+PASS C16 bt-run: identical, 177 bytes, exit 0
+PASS B1 bt-vs-lldb: 7 ps-unwind frames equal to lldb from eh_bt_leaf on
+   0 uw 0x1000033c8 lldb 0x1000033c8 ps`eh_bt_leaf
+   1 uw 0x10000345c lldb 0x10000345c ps`eh_bt_mid
+   2 uw 0x1000019c0 lldb 0x1000019c0 ps`eh::main
+   3 uw 0x100000f70 lldb 0x100000f70 ps`std::sys::backtrace::__rust_begin_short_backtrace::<fn(),
+   4 uw 0x100000f88 lldb 0x100000f88 ps`std::rt::lang_start::<()>::{closure#0}
+   5 uw 0x10001e180 lldb 0x10001e180 ps`std::rt::lang_start_internal
+   6 uw 0x1000045a0 lldb 0x1000045a0 ps`main
+   7 uw (stop)      lldb 0x1875c7e00 dyld`start
+PASS S1 sizes: 23 functions: __eh_frame FDEs 1480 B + __gcc_except_tab 696 B = 2176 B; EKO 1624 B (16 B chunk header included), ratio 0.746; CIEs and __unwind_info not counted
+  _eh_absorber_frame     __eh_frame   64  __gcc_except_tab   28  EKO   44
+  _eh_bt_leaf            __eh_frame   56  __gcc_except_tab    0  EKO   16
+  _eh_bt_mid             __eh_frame   64  __gcc_except_tab   32  EKO   44
+  _eh_catch_local        __eh_frame   72  __gcc_except_tab   84  EKO  152
+  _eh_churn              __eh_frame   80  __gcc_except_tab    0  EKO   16
+  _eh_churn_leaf         __eh_frame   56  __gcc_except_tab    0  EKO   16
+  _eh_flags              __eh_frame   64  __gcc_except_tab   40  EKO   68
+  _eh_guarded_inner      __eh_frame   64  __gcc_except_tab   32  EKO   44
+  _eh_guarded_outer      __eh_frame   64  __gcc_except_tab   32  EKO   56
+  _eh_keep               __eh_frame   96  __gcc_except_tab   40  EKO   56
+  _eh_niche              __eh_frame   80  __gcc_except_tab   68  EKO  164
+  _eh_nounwind           __eh_frame   64  __gcc_except_tab   28  EKO  104
+  _eh_relay_1            __eh_frame   48  __gcc_except_tab    0  EKO   16
+  _eh_relay_2            __eh_frame   56  __gcc_except_tab    0  EKO   16
+  _eh_shapes             __eh_frame   72  __gcc_except_tab   32  EKO   44
+  _eh_shared_inner       __eh_frame   72  __gcc_except_tab   40  EKO   80
+  _eh_shared_outer       __eh_frame   72  __gcc_except_tab   76  EKO  212
+  _eh_step               __eh_frame   48  __gcc_except_tab    0  EKO   16
+  _eh_throw              __eh_frame   48  __gcc_except_tab    0  EKO   16
+  _eh_trace_cb           __eh_frame   64  __gcc_except_tab   16  EKO   68
+  _eh_two_sites          __eh_frame   72  __gcc_except_tab   56  EKO  104
+  _eh_bomb_frame         __eh_frame   48  __gcc_except_tab   36  EKO   92
+  _eh_rethrow            __eh_frame   56  __gcc_except_tab   56  EKO  164
+NOT RUN L aarch64-unknown-linux-musl: linked statically with ps_unwind (rust-lld); not run, no Linux machine; no EKO chunk (eko-gen reads Mach-O only)
+NOT RUN L x86_64-unknown-linux-musl: linked statically with ps_unwind (rust-lld); not run, no Linux machine; no EKO chunk (eko-gen reads Mach-O only)
+NOT RUN L aarch64-unknown-linux-gnu: compiled to an object; not linked (no glibc sysroot, docs/TARGETS.md) and not run
+NOT RUN L x86_64-unknown-linux-gnu: compiled to an object; not linked (no glibc sysroot, docs/TARGETS.md) and not run
+eh: 23 pass, 0 fail, 4 not run

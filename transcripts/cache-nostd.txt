@@ -1,0 +1,6 @@
+nm -a target/release/libps_unwind.a: 2313 lines, 0 std symbols
+nm -a target/dist/libps_unwind.a: 154 lines, 0 std symbols
+imports: _dyld_register_func_for_add_image _dyld_register_func_for_remove_image abort free malloc memcpy memmove posix_memalign write
+exports: 18
+check-nostd: PASS
+exit 0
