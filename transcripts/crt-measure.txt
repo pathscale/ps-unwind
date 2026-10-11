@@ -1,0 +1,32 @@
+== aarch64-unknown-linux-musl: rustc std.rs, -C link-self-contained=no, driver PS_UNWIND_CRT_MODE=none (crt1/crti/crtn only, no crtbegin/crtend), ps_unwind whole-archive
+link exit=0 (no linker errors)
+-- llvm-nm -u on the linked program:
+                 U _DYNAMIC
+                 w __cxa_thread_atexit_impl
+                 w gettid
+-- llvm-nm -u on std rlib, crt-relevant names:
+                 w __cxa_thread_atexit_impl
+                 w __dso_handle
+-- reference: rust self-contained (compiler-rt) crtbegin.o undefined:
+                 w __cxa_finalize
+                 w __deregister_frame_info
+                 w __register_frame_info
+== x86_64-unknown-linux-musl: rustc std.rs, -C link-self-contained=no, driver PS_UNWIND_CRT_MODE=none (crt1/crti/crtn only, no crtbegin/crtend), ps_unwind whole-archive
+link exit=0 (no linker errors)
+-- llvm-nm -u on the linked program:
+                 w __cxa_thread_atexit_impl
+                 w gettid
+-- llvm-nm -u on std rlib, crt-relevant names:
+                 w __cxa_thread_atexit_impl
+                 w __dso_handle
+-- reference: rust self-contained (compiler-rt) crtbegin.o undefined:
+                 U _GLOBAL_OFFSET_TABLE_
+                 w __cxa_finalize
+                 w __deregister_frame_info
+                 w __register_frame_info
+== aarch64-unknown-linux-gnu: link NOT RUN (no glibc crt1.o/libc.so on this Mac); llvm-nm -u on std rlib, crt-relevant names:
+                 w __cxa_thread_atexit_impl
+                 w __dso_handle
+== x86_64-unknown-linux-gnu: link NOT RUN (no glibc crt1.o/libc.so on this Mac); llvm-nm -u on std rlib, crt-relevant names:
+                 w __cxa_thread_atexit_impl
+                 w __dso_handle

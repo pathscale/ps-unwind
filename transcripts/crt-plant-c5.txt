@@ -1,0 +1,19 @@
+plant c5: crt/lib.rs: the executable __dso_handle cfg replaced by #[cfg(any())], so crtbegin.o no longer defines it
+-#[cfg(all(crt_begin, not(crt_shared)))]
++#[cfg(any())]
+FAIL C5-objects aarch64-unknown-linux-musl
+    crtbegin.o: __dso_handle not a hidden definition: 3: 0000000000000000     0 NOTYPE  GLOBAL HIDDEN    UND __dso_handle
+PASS C1 aarch64-unknown-linux-musl
+    link line: libc crt1/rcrt1, crti, crtn; ours crtbegin.o, crtend.o; nothing else
+PASS C4 aarch64-unknown-linux-musl
+    static musl link, no duplicate symbol
+PASS C2 aarch64-unknown-linux-musl
+    shared object NEEDED: none; executable is static, no NEEDED
+PASS C3 aarch64-unknown-linux-musl
+    no __register_frame_info / __deregister_frame_info reference in the program or the shared object
+FAIL C5-link aarch64-unknown-linux-musl
+    __dso_handle in the executable is not 0 (bytes unread, relocs 0): not crtbegin.o's; lld synthesizes a hidden __dso_handle at the image start when no object defines one
+NOT RUN C5-tls aarch64-unknown-linux-musl
+    linked, not executed: needs a Linux host; on musl std does not use __dso_handle (no __cxa_thread_atexit_impl)
+7 checks: 4 pass, 2 fail, 1 not run
+exit 1

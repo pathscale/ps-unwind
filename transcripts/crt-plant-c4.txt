@@ -1,0 +1,51 @@
+PASS C5-objects aarch64-unknown-linux-musl
+    crtbegin.o: hidden, no relocation; crtbeginS.o: hidden, self relocation; no register_frame reference in any of the four
+PASS C1 aarch64-unknown-linux-musl
+FAIL C4 aarch64-unknown-linux-musl
+    duplicate symbol: __dso_handle
+PASS C2 aarch64-unknown-linux-musl
+    shared object NEEDED: none; executable is static, no NEEDED
+PASS C3 aarch64-unknown-linux-musl
+    no __register_frame_info / __deregister_frame_info reference in the program or the shared object
+PASS C5-link aarch64-unknown-linux-musl
+    shared object: __dso_handle local at 0x20338, R_AARCH64_RELATIVE addend 0x20338 (self)
+NOT RUN C5-tls aarch64-unknown-linux-musl
+    linked, not executed: needs a Linux host; on musl std does not use __dso_handle (no __cxa_thread_atexit_impl)
+PASS C5-objects x86_64-unknown-linux-musl
+    crtbegin.o: hidden, no relocation; crtbeginS.o: hidden, self relocation; no register_frame reference in any of the four
+PASS C1 x86_64-unknown-linux-musl
+FAIL C4 x86_64-unknown-linux-musl
+    duplicate symbol: __dso_handle
+PASS C2 x86_64-unknown-linux-musl
+    shared object NEEDED: none; executable is static, no NEEDED
+PASS C3 x86_64-unknown-linux-musl
+    no __register_frame_info / __deregister_frame_info reference in the program or the shared object
+PASS C5-link x86_64-unknown-linux-musl
+    shared object: __dso_handle local at 0x2330, R_X86_64_RELATIVE addend 0x2330 (self)
+NOT RUN C5-tls x86_64-unknown-linux-musl
+    linked, not executed: needs a Linux host; on musl std does not use __dso_handle (no __cxa_thread_atexit_impl)
+PASS C5-objects aarch64-unknown-linux-gnu
+    crtbegin.o: hidden, no relocation; crtbeginS.o: hidden, self relocation; no register_frame reference in any of the four
+NOT RUN C1 aarch64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C2 aarch64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C3 aarch64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C5-link aarch64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C5-tls aarch64-unknown-linux-gnu
+    needs a Linux host to execute
+PASS C5-objects x86_64-unknown-linux-gnu
+    crtbegin.o: hidden, no relocation; crtbeginS.o: hidden, self relocation; no register_frame reference in any of the four
+NOT RUN C1 x86_64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C2 x86_64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C3 x86_64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C5-link x86_64-unknown-linux-gnu
+    no glibc crt1.o/crti.o/crtn.o/libc.so on this machine (docs/CRT.md)
+NOT RUN C5-tls x86_64-unknown-linux-gnu
+    needs a Linux host to execute
+26 checks: 12 pass, 2 fail, 12 not run
