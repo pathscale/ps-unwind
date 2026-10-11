@@ -4,7 +4,13 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Pathscale stack unwinder: a no_std _Unwind_* implementation in Rust"
-publish = false
+repository = "https://github.com/pathscale/ps-unwind"
+readme = "README.md"
+keywords = ["unwind", "no_std", "exceptions", "backtrace", "aarch64"]
+categories = ["no-std", "development-tools::debugging"]
+# Verification transcripts stay in the repository; the published crate carries the code,
+# docs, fixtures and tools.
+exclude = ["transcripts/"]
 
 [lib]
 name = "ps_unwind"
