@@ -136,7 +136,8 @@ pub fn lookup(mh: usize, ui: usize, len: usize, pc: usize) -> Result<Option<Entr
         // LSDA index rows are {function offset, lsda offset}, sorted, and the
         // first-level entries bracket the rows that belong to this page.
         let lo_at = ui + lsda_first as usize;
-        let count = ((lsda_last - lsda_first) / 8) as usize;
+        let span = lsda_last.checked_sub(lsda_first).ok_or(Failure::BadUnwindInfo)?;
+        let count = (span / 8) as usize;
         if lo_at + count * 8 > end {
             return Err(Failure::BadUnwindInfo);
         }
@@ -166,9 +167,57 @@ pub fn lookup(mh: usize, ui: usize, len: usize, pc: usize) -> Result<Option<Entr
             return Err(Failure::BadUnwindInfo);
         }
         let got = unsafe { load::<u32>(ui + pers_off + (p - 1) * 4) } as usize;
-        entry.personality = unsafe { load::<usize>(mh + got) };
+        let slot = mh.checked_add(got).ok_or(Failure::BadUnwindInfo)?;
+        if !readable_slot(mh, slot) {
+            return Err(Failure::BadUnwindInfo);
+        }
+        entry.personality = unsafe { load::<usize>(slot) };
     }
     Ok(Some(entry))
+}
+
+// The caller supplies a loaded Mach-O image, including its load commands.
+// Only dereference a personality slot in a readable mapped segment.
+fn readable_slot(mh: usize, slot: usize) -> bool {
+    let Some(slot_end) = slot.checked_add(core::mem::size_of::<usize>()) else { return false };
+    let Some(mut cmd) = mh.checked_add(32) else { return false };
+    let ncmds = unsafe { load::<u32>(mh + 16) } as usize;
+    let bytes = unsafe { load::<u32>(mh + 20) } as usize;
+    let Some(end) = cmd.checked_add(bytes) else { return false };
+    let mut slide = None;
+    for _ in 0..ncmds {
+        if end.saturating_sub(cmd) < 8 { return false; }
+        let kind = unsafe { load::<u32>(cmd) };
+        let size = unsafe { load::<u32>(cmd + 4) } as usize;
+        if size < 8 || cmd.checked_add(size).is_none_or(|n| n > end) { return false; }
+        if kind == 0x19 {
+            if size < 72 { return false; }
+            let vmaddr = unsafe { load::<u64>(cmd + 24) } as usize;
+            let fileoff = unsafe { load::<u64>(cmd + 40) };
+            let filesize = unsafe { load::<u64>(cmd + 48) };
+            if fileoff == 0 && filesize != 0 {
+                slide = Some(mh.wrapping_sub(vmaddr));
+            }
+        }
+        cmd += size;
+    }
+    let Some(slide) = slide else { return false };
+    let Some(mut cmd) = mh.checked_add(32) else { return false };
+    for _ in 0..ncmds {
+        let kind = unsafe { load::<u32>(cmd) };
+        let size = unsafe { load::<u32>(cmd + 4) } as usize;
+        if kind == 0x19 {
+            let vmaddr = unsafe { load::<u64>(cmd + 24) } as usize;
+            let vmsize = unsafe { load::<u64>(cmd + 32) } as usize;
+            let readable = unsafe { load::<u32>(cmd + 60) } & 1 != 0;
+            let start = vmaddr.wrapping_add(slide);
+            if readable && start <= slot && start.checked_add(vmsize).is_some_and(|n| slot_end <= n) {
+                return true;
+            }
+        }
+        cmd += size;
+    }
+    false
 }
 
 /// Index of the last element whose key is <= target, checking the keys it

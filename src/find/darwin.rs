@@ -65,29 +65,35 @@ pub fn image(mh: usize) -> Result<Entry> {
     }
     let ncmds = unsafe { load::<u32>(mh + 16) } as usize;
     let sizeofcmds = unsafe { load::<u32>(mh + 20) } as usize;
-    let mut cmd = mh + 32;
-    let end = cmd + sizeofcmds;
+    let mut cmd = mh.checked_add(32).ok_or(Failure::NoImage)?;
+    let end = cmd.checked_add(sizeofcmds).ok_or(Failure::NoImage)?;
     let mut out = Entry::default();
     let mut slide = None;
     let mut sections = [(0usize, 0usize); 3];
     for _ in 0..ncmds {
-        if cmd + 8 > end {
+        if end.saturating_sub(cmd) < 8 {
             return Err(Failure::NoImage);
         }
         let kind = unsafe { load::<u32>(cmd) };
         let size = unsafe { load::<u32>(cmd + 4) } as usize;
-        if size < 8 {
+        if size < 8 || cmd.checked_add(size).is_none_or(|next| next > end) {
             return Err(Failure::NoImage);
         }
         if kind == LC_SEGMENT_64 {
+            if size < 72 {
+                return Err(Failure::NoImage);
+            }
             if name_is(cmd + 8, b"__TEXT") {
                 let vmaddr = unsafe { load::<u64>(cmd + 24) } as usize;
                 let vmsize = unsafe { load::<u64>(cmd + 32) } as usize;
                 slide = Some(mh.wrapping_sub(vmaddr));
                 out.start = mh;
-                out.end = mh + vmsize;
+                out.end = mh.checked_add(vmsize).ok_or(Failure::NoImage)?;
             }
             let nsects = unsafe { load::<u32>(cmd + 64) } as usize;
+            if nsects.checked_mul(80).and_then(|n| 72usize.checked_add(n)).is_none_or(|n| n > size) {
+                return Err(Failure::NoImage);
+            }
             for i in 0..nsects {
                 let sect = cmd + 72 + i * 80;
                 let which = if name_is(sect, EKO_SECTION) {

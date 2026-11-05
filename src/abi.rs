@@ -54,11 +54,12 @@ pub struct Cursor {
     /// The pc is the faulting instruction, not a return address: the frame
     /// below was a signal trampoline.
     pub ip_before_insn: bool,
+    steps: usize,
 }
 
 impl Cursor {
     pub fn new(regs: Regs) -> Cursor {
-        Cursor { regs, info: FrameInfo::EMPTY, ip_before_insn: false }
+        Cursor { regs, info: FrameInfo::EMPTY, ip_before_insn: false, steps: 0 }
     }
 
     /// The address used to find the function: the return address minus one,
@@ -86,6 +87,9 @@ impl Cursor {
 
     /// Replace the register state with the caller state.
     pub fn step(&mut self) -> Result<()> {
+        if self.steps >= 4096 {
+            return Err(Failure::StackNotAdvancing);
+        }
         let async_frame = self.ip_before_insn;
         let next = match self.info.kind {
             #[cfg(target_vendor = "apple")]
@@ -108,6 +112,7 @@ impl Cursor {
         if !self.info.signal && (new_sp < old_sp || (new_sp == old_sp && next.pc == self.regs.pc)) {
             return Err(Failure::StackNotAdvancing);
         }
+        self.steps += 1;
         self.ip_before_insn = self.info.signal;
         self.regs = next;
         Ok(())
@@ -316,7 +321,7 @@ pub unsafe extern "C" fn _Unwind_GetCFA(c: *mut Cursor) -> usize {
     #[cfg(not(target_vendor = "apple"))]
     {
         let c = unsafe { &*c };
-        let mut copy = Cursor { regs: c.regs, info: c.info, ip_before_insn: c.ip_before_insn };
+        let mut copy = Cursor { regs: c.regs, info: c.info, ip_before_insn: c.ip_before_insn, steps: c.steps };
         match copy.step() {
             Ok(()) => copy.regs.sp(),
             Err(_) => 0,

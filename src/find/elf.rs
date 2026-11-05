@@ -6,7 +6,7 @@
 //!
 //! The cache is filled at init from the executable (AT_PHDR via getauxval,
 //! no lock) and dl_iterate_phdr (loader lock). A pc it does not hold is
-//! looked up again only outside signal context: one dl_iterate_phdr pass that
+//! revalidated before each lookup outside signal context: one dl_iterate_phdr pass that
 //! stops at once when dlpi_adds/dlpi_subs show no load or unload since the
 //! last fill, and otherwise rebuilds the array. In signal context a miss is
 //! SignalContextMiss and dl_iterate_phdr is never called; before the cache is
@@ -172,16 +172,16 @@ fn entry(addr: usize) -> Result<Entry> {
         };
     }
     cache::ensure_ready()?;
-    if let Some(e) = cache::lookup(addr) {
-        return Ok(e);
-    }
     if signal {
-        return Err(Failure::SignalContextMiss);
+        return cache::lookup(addr).ok_or(Failure::SignalContextMiss);
     }
-    if let Some((v, g)) = snapshot(GENERATION.load(Ordering::Relaxed)) {
-        GENERATION.store(g, Ordering::Relaxed);
-        cache::replace(v);
-    }
+    // update holds WRITER while probing, collecting and publishing.
+    cache::update(|entries| {
+        if let Some((v, g)) = snapshot(GENERATION.load(Ordering::Relaxed)) {
+            *entries = v;
+            GENERATION.store(g, Ordering::Relaxed);
+        }
+    });
     cache::lookup(addr).ok_or(Failure::NoImage)
 }
 
@@ -249,11 +249,15 @@ pub fn find(target: usize) -> Result<FrameInfo> {
     let bases = Bases { text: s.text_start, data: hdr, func: 0 };
     let eh_frame = r.encoded(ptr_enc, &bases)?;
     let eh_end = s.hdr_seg_end;
+    if eh_frame < s.start || eh_frame >= eh_end {
+        return Err(Failure::BadCieFde);
+    }
     let fde = if count_enc != 0xff && table_enc == 0x3b {
         // datarel | sdata4: fixed 8-byte rows, binary search.
         let count = r.encoded(count_enc, &bases)?;
         let table = r.pos;
-        if count == 0 || table + count * 8 > eh_end {
+        let table_end = count.checked_mul(8).and_then(|bytes| table.checked_add(bytes));
+        if count == 0 || table_end.is_none_or(|end| end > eh_end) {
             return Err(Failure::NoUnwindInfo);
         }
         let row = |i: usize| -> (usize, usize) {
@@ -279,7 +283,8 @@ pub fn find(target: usize) -> Result<FrameInfo> {
         }
         fde
     } else {
-        match cfi::scan(eh_frame, eh_end - eh_frame, target, &bases)? {
+        let frame_len = eh_end.checked_sub(eh_frame).ok_or(Failure::BadCieFde)?;
+        match cfi::scan(eh_frame, frame_len, target, &bases)? {
             Some(f) => f,
             None => return Err(Failure::NoUnwindInfo),
         }

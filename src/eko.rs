@@ -70,7 +70,7 @@ fn record_at(at: usize, chunk: usize) -> Record {
     let frame = unsafe { load::<u32>(at + 8) };
     let h = unsafe { load::<u32>(at + 12) } as usize;
     let start = (at as isize).wrapping_add(rel) as usize;
-    Record { start, end: start.wrapping_add(len), frame, handlers: if h == 0 { 0 } else { chunk + h }, program: 0, limit: 0, version: VERSION }
+    Record { start, end: start.wrapping_add(len), frame, handlers: if h == 0 { 0 } else { chunk.wrapping_add(h) }, program: 0, limit: 0, version: VERSION }
 }
 
 /// Find the record covering `pc` in the section [section, section + len).
@@ -83,9 +83,9 @@ pub fn lookup(section: usize, len: usize, pc: usize) -> Result<Option<Record>> {
 /// `lookup` for chunks of architecture code `want`. The unwinder only asks
 /// for its own; tools/eko-dump.rs reads the tables of either architecture.
 pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Option<Record>> {
-    let end = section + len;
+    let end = section.checked_add(len).ok_or(Failure::BadEkoHeader)?;
     let mut chunk = section;
-    while chunk + HEADER <= end {
+    while end.saturating_sub(chunk) >= HEADER {
         let magic = unsafe { load::<u32>(chunk) };
         if magic == 0 {
             // Linker padding between chunks is zero-filled and 4-aligned.
@@ -106,9 +106,9 @@ pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Op
             || stride == 0
             || arch_code != want
             || flags != FLAG_RUST_PERSONALITY
-            || size < HEADER + count * stride
+            || count.checked_mul(stride).and_then(|n| HEADER.checked_add(n)).is_none_or(|n| size < n)
             || !size.is_multiple_of(4)
-            || chunk + size > end
+            || chunk.checked_add(size).is_none_or(|n| n > end)
         {
             return Err(Failure::BadEkoHeader);
         }
@@ -124,6 +124,17 @@ pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Op
                 && let Some(r) = search(&rec, count, pc)? {
                     if r.version == VERSION2 && ((r.handlers != 0 && r.program == 0) || r.program >= limit) {
                         return Err(Failure::BadEkoRecord);
+                    }
+                    if r.version == VERSION && r.handlers != 0 {
+                        if r.handlers < chunk || r.handlers.checked_add(4).is_none_or(|n| n > limit) {
+                            return Err(Failure::BadEkoRecord);
+                        }
+                        let rows = unsafe { load::<u32>(r.handlers) } as usize;
+                        let table_end = rows.checked_mul(ROW)
+                            .and_then(|n| r.handlers.checked_add(4)?.checked_add(n));
+                        if table_end.is_none_or(|n| n > limit) {
+                            return Err(Failure::BadEkoRecord);
+                        }
                     }
                     return Ok(Some(r));
                 }
