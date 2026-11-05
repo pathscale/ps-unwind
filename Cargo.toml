@@ -1,6 +1,6 @@
 [package]
 name = "ps-unwind"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "Pathscale stack unwinder: a no_std _Unwind_* implementation in Rust"
