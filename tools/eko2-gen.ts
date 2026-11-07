@@ -6,7 +6,11 @@
 //   state program  every CFI row of the FDE, at every instruction: CFA rule,
 //                  return address and saved registers. Rows the format does
 //                  not express (a CFA on another register, a rule that is not
-//                  [CFA-8n], undefined or expression rules) leave the function
+//                  [CFA-8n], undefined or expression rules, GNU ops other
+//                  than DW_CFA_GNU_args_size, args_size together with
+//                  remember_state, an op llvm-objdump prints without a
+//                  name that the raw bytes do not show to be args_size)
+//                  leave the function
 //                  on the standard tables; it is listed as skipped
 //   handlers       one row per call, keyed by return address: no LSDA entry
 //                  = terminate, landing pad 0 = no row, action 0 or type
@@ -20,6 +24,8 @@
 //   wrong-cfa[:FN]   the first state change after the entry of FN (default:
 //                    the first function with one) gets CFA + 16
 //   drop-state[:FN]  the first state change after the entry of FN is dropped
+//   wrong-args[:FN]  the first state of FN with a DW_CFA_GNU_args_size > 0
+//                    gets 8 more bytes
 //   wrong-pad        each call gets the pad of another call site
 //   no-restore       the highest callee-saved register is never saved
 //
@@ -63,29 +69,47 @@ export function section(img: string, name: string): { addr: bigint; bytes: numbe
   return { addr, bytes };
 }
 
-/** An unwind state: CFA = (fp ? FP : SP) + 8 * units, reg at CFA - 8 * slot. */
-export type St = { fp: boolean; units: number; regs: Map<number, number> };
-export const entry = (a: Arch): St => ({ fp: false, units: a.entryCfa, regs: a.entryRaSlot ? new Map([[a.ra, a.entryRaSlot]]) : new Map() });
+/** An unwind state: CFA = (fp ? FP : SP) + 8 * units, reg at CFA - 8 * slot,
+ * args = DW_CFA_GNU_args_size in bytes (0 when none). */
+export type St = { fp: boolean; units: number; regs: Map<number, number>; args: number };
+export const entry = (a: Arch): St => ({ fp: false, units: a.entryCfa, regs: a.entryRaSlot ? new Map([[a.ra, a.entryRaSlot]]) : new Map(), args: 0 });
 export const show = (a: Arch, s: St) => {
   const r = [...s.regs].sort((x, y) => x[0] - y[0]).map(([k, v]) => `reg${k}=[CFA-${8 * v}]`);
-  return `CFA=reg${s.fp ? a.fp : a.sp}+${8 * s.units}${r.length ? `: ${r.join(", ")}` : ""}`;
+  return `CFA=reg${s.fp ? a.fp : a.sp}+${8 * s.units}${r.length ? `: ${r.join(", ")}` : ""}${s.args ? ` args=${s.args}` : ""}`;
 };
-const same = (a: St, b: St) => a.fp === b.fp && a.units === b.units && a.regs.size === b.regs.size && [...a.regs].every(([k, v]) => b.regs.get(k) === v);
+const same = (a: St, b: St) => a.fp === b.fp && a.units === b.units && a.args === b.args && a.regs.size === b.regs.size && [...a.regs].every(([k, v]) => b.regs.get(k) === v);
 
-export type Fde = { start: bigint; end: bigint; lsda: bigint | null; len: number; rows: { at: bigint; text: string }[]; ops: string[] };
+export type Fde = { start: bigint; end: bigint; lsda: bigint | null; len: number; rows: { at: bigint; text: string }[]; ops: string[]; args: { at: bigint; n: number }[] };
 
 /** FDEs of .eh_frame / __eh_frame (not .debug_frame), by function start. */
 export function fdes(img: string): Map<bigint, Fde> {
   const m = new Map<bigint, Fde>();
   let cur: Fde | null = null;
   let inEh = false;
+  let pc = 0n;
+  // CIE augmentation by section offset; FDE section offset and CIE offset;
+  // ops llvm-objdump prints without a name, by FDE.
+  const cies = new Map<number, { aug: string; data: number[] }>();
+  let cie: { aug: string; data: number[] } | null = null;
+  const where = new Map<Fde, { off: number; cie: number }>();
+  const unnamed = new Map<Fde, { idx: number; at: bigint; text: string }[]>();
   for (const l of out([`${llvm}/llvm-objdump`, "--dwarf=frames", img]).split("\n")) {
     if (/^\.(\S+) contents:$/.test(l)) { inEh = l.startsWith(".eh_frame"); cur = null; continue; }
     if (!inEh) continue;
-    const h = l.match(/^[0-9a-f]{8} ([0-9a-f]{8}) [0-9a-f]{8} (FDE|CIE)(?: cie=[0-9a-f]+ pc=([0-9a-f]+)\.\.\.([0-9a-f]+))?/);
+    const h = l.match(/^([0-9a-f]{8}) ([0-9a-f]{8}) [0-9a-f]{8} (FDE|CIE)(?: cie=([0-9a-f]+) pc=([0-9a-f]+)\.\.\.([0-9a-f]+))?/);
     if (h) {
-      cur = h[2] === "FDE" ? { start: BigInt(`0x${h[3]}`), end: BigInt(`0x${h[4]}`), lsda: null, len: parseInt(h[1], 16) + 4, rows: [], ops: [] } : null;
-      if (cur) m.set(cur.start, cur);
+      cur = h[3] === "FDE" ? { start: BigInt(`0x${h[5]}`), end: BigInt(`0x${h[6]}`), lsda: null, len: parseInt(h[2], 16) + 4, rows: [], ops: [], args: [] } : null;
+      cie = null;
+      if (cur) { m.set(cur.start, cur); where.set(cur, { off: parseInt(h[1], 16), cie: parseInt(h[4], 16) }); }
+      else { cie = { aug: "", data: [] }; cies.set(parseInt(h[1], 16), cie); }
+      if (cur) pc = cur.start;
+      continue;
+    }
+    if (cie) {
+      const s = l.match(/^\s+Augmentation:\s+"(.*)"$/);
+      if (s) cie.aug = s[1];
+      const d = l.match(/^\s+Augmentation data:\s+((?:[0-9A-Fa-f]{2} ?)*)$/);
+      if (d) cie.data = d[1].trim().split(" ").filter((x) => x).map((x) => parseInt(x, 16));
       continue;
     }
     if (!cur) continue;
@@ -93,10 +117,84 @@ export function fdes(img: string): Map<bigint, Fde> {
     if (a) cur.lsda = BigInt(`0x${a[1]}`);
     const o = l.match(/^\s+(DW_CFA_\w+)/);
     if (o) cur.ops.push(o[1]);
+    // An op the printer has no name for on this architecture (aarch64
+    // prints DW_CFA_GNU_args_size as ": +N"): resolved from the raw bytes
+    // below, refused by states() if it is not args_size.
+    const u = l.match(/^\s+: (.*)$/);
+    if (u) {
+      if (!unnamed.has(cur)) unnamed.set(cur, []);
+      unnamed.get(cur)!.push({ idx: cur.ops.length, at: pc, text: u[1] });
+      cur.ops.push("unnamed");
+    }
+    const to = l.match(/^\s+DW_CFA_\w+: .* to 0x([0-9a-f]+)$/);
+    if (to) pc = BigInt(`0x${to[1]}`);
+    const g = l.match(/^\s+DW_CFA_GNU_args_size: \+?(\d+)$/);
+    if (g) cur.args.push({ at: pc, n: Number(g[1]) });
     const r = l.match(/^\s+0x([0-9a-f]+): (CFA=.*)$/);
     if (r) cur.rows.push({ at: BigInt(`0x${r[1]}`), text: r[2] });
   }
+  if (unnamed.size) {
+    const eh = section(img, image(img).macho ? "__eh_frame" : ".eh_frame").bytes;
+    for (const [f, list] of unnamed) {
+      const w = where.get(f)!;
+      const ops = rawOps(eh, w.off, cies.get(w.cie));
+      for (const x of list) {
+        const op = ops?.[x.idx];
+        if (op && op.code === 0x2e && x.text === `+${op.arg}`) {
+          f.ops[x.idx] = "DW_CFA_GNU_args_size";
+          f.args.push({ at: x.at, n: op.arg });
+        }
+      }
+      f.args.sort((p, q) => (p.at < q.at ? -1 : p.at > q.at ? 1 : 0));
+    }
+  }
   return m;
+}
+
+/** The CFA instructions of the FDE at section offset `off` as opcode and
+ * first operand (uleb operands only), in order, nops included; null when
+ * the CIE augmentation or an op is not understood. */
+function rawOps(eh: number[], off: number, cie: { aug: string; data: number[] } | undefined): { code: number; arg: number }[] | null {
+  if (!cie || !cie.aug.startsWith("z")) return null;
+  let r = 0;
+  let k = 0;
+  for (const c of cie.aug.slice(1)) {
+    if (c === "P") { const e = cie.data[k++]; k += encSize(e) ?? 99; }
+    else if (c === "L") k++;
+    else if (c === "R") r = cie.data[k++];
+    else if (c !== "S" && c !== "B") return null;
+  }
+  const ptr = encSize(r);
+  if (ptr === null) return null;
+  const u32 = (i: number) => (eh[i] | (eh[i + 1] << 8) | (eh[i + 2] << 16) | (eh[i + 3] << 24)) >>> 0;
+  const end = off + 4 + u32(off);
+  let p = off + 8 + 2 * ptr;
+  const uleb = () => { let v = 0, s = 0, b; do { b = eh[p++]; v += (b & 0x7f) * 2 ** s; s += 7; } while (b & 0x80); return v; };
+  const augLen = uleb();
+  p += augLen;
+  const skip = (n: number) => { p += n; return 0; };
+  const res: { code: number; arg: number }[] = [];
+  const size: Record<number, string> = { 0x00: "", 0x02: "1", 0x03: "2", 0x04: "4", 0x05: "uu", 0x06: "u", 0x07: "u", 0x08: "u", 0x09: "uu", 0x0a: "", 0x0b: "", 0x0c: "uu", 0x0d: "u", 0x0e: "u", 0x0f: "b", 0x10: "ub", 0x11: "uu", 0x12: "uu", 0x13: "u", 0x14: "uu", 0x15: "uu", 0x16: "ub", 0x2d: "", 0x2e: "u", 0x2f: "uu" };
+  while (p < end) {
+    const c = eh[p++];
+    if (c & 0xc0) { res.push({ code: c & 0xc0, arg: 0 }); if ((c & 0xc0) === 0x80) uleb(); continue; }
+    const form = size[c];
+    if (form === undefined) return null;
+    let first = -1;
+    for (const f of form) {
+      // sleb operands are skipped as ulebs: only the length matters here.
+      const v = f === "u" ? uleb() : f === "b" ? skip(uleb()) : skip(Number(f));
+      if (first < 0) first = v;
+    }
+    res.push({ code: c, arg: first });
+  }
+  return res;
+}
+
+/** Bytes of a DW_EH_PE value of this encoding, or null. */
+function encSize(e: number): number | null {
+  const s: Record<number, number> = { 0x00: 8, 0x02: 2, 0x03: 4, 0x04: 8, 0x0a: 2, 0x0b: 4, 0x0c: 8 };
+  return s[e & 0x0f] ?? null;
 }
 
 /** Parse one llvm-objdump row into a state, or the reason it is not expressible. */
@@ -106,7 +204,7 @@ export function parseRow(a: Arch, text: string): St | string {
   const base = Number(m[1]), off = Number(m[2] ?? "0");
   if (base !== a.sp && base !== a.fp) return `CFA on reg${base}`;
   if (off < 0 || off % 8) return `CFA offset ${off}`;
-  const s: St = { fp: base === a.fp && base !== a.sp, units: off / 8, regs: new Map() };
+  const s: St = { fp: base === a.fp && base !== a.sp, units: off / 8, regs: new Map(), args: 0 };
   for (const part of (m[3] ?? "").split(", ").filter((x) => x)) {
     const sv = part.match(/^reg(\d+)=same$/);
     if (sv) continue;
@@ -121,7 +219,8 @@ export function parseRow(a: Arch, text: string): St | string {
 
 /** States of an FDE as [offset, state], merged, or the reason none fits. */
 export function states(a: Arch, f: Fde): [number, St][] | string {
-  for (const op of f.ops) if (/negate_ra|expression|val_|^DW_CFA_register$|GNU|undefined/.test(op)) return op;
+  for (const op of f.ops) if (/negate_ra|expression|val_|^DW_CFA_register$|^DW_CFA_GNU_(?!args_size$)|undefined|^unnamed$/.test(op)) return op === "unnamed" ? "an op llvm-objdump does not name" : op;
+  if (f.args.length && f.ops.some((op) => /remember_state|restore_state/.test(op))) return "DW_CFA_GNU_args_size with DW_CFA_remember_state";
   const rows: [number, St][] = [];
   for (const r of f.rows) {
     const at = Number(r.at - f.start);
@@ -132,7 +231,28 @@ export function states(a: Arch, f: Fde): [number, St][] | string {
     if (rows.length && rows[rows.length - 1][0] === at) rows.pop();
     rows.push([at, s]);
   }
-  return rows;
+  for (const x of f.args) if (Number(x.at - f.start) % a.unit) return `args_size at +0x${(x.at - f.start).toString(16)} not on a code unit`;
+  return withArgs(a, f, rows);
+}
+
+/** Rows with the DW_CFA_GNU_args_size in effect at each offset folded into
+ * the state (it changes without a new CFI row), merged again. */
+export function withArgs(a: Arch, f: Fde, rows: [number, St][]): [number, St][] {
+  if (!f.args.length) return rows;
+  const args = f.args.map((x) => [Number(x.at - f.start), x.n] as [number, number]);
+  const pts = [...new Set([...rows.map(([o]) => o), ...args.map(([o]) => o)])].sort((x, y) => x - y);
+  const res: [number, St][] = [];
+  for (const p of pts) {
+    let s = entry(a);
+    for (const [o, x] of rows) if (o <= p) s = x;
+    let n = 0;
+    for (const [o, v] of args) if (o <= p) n = v;
+    const st = { ...s, args: n };
+    if (res.length && same(res[res.length - 1][1], st)) continue;
+    if (res.length && res[res.length - 1][0] === p) res.pop();
+    res.push([p, st]);
+  }
+  return res;
 }
 
 const uleb = (v: number): number[] => {
@@ -148,13 +268,14 @@ function delta(arch: Arch, a: St, b: St): number[] {
   if (b.regs.get(arch.fp) === 2 && b.regs.get(arch.ra) === 1) {
     const regs = new Map(a.regs).set(arch.fp, 2).set(arch.ra, 1);
     best.push([0xca, ...plain(arch, { ...a, regs }, b)]);
-    if (b.fp && b.units === 2) best.push([0xc9, ...plain(arch, { fp: true, units: 2, regs }, b)]);
+    if (b.fp && b.units === 2) best.push([0xc9, ...plain(arch, { fp: true, units: 2, regs, args: a.args }, b)]);
   }
   return best.reduce((x, y) => (y.length < x.length ? y : x));
 }
 
 function plain(arch: Arch, a: St, b: St): number[] {
   const o: number[] = [];
+  if (a.args !== b.args) o.push(0xcb, ...uleb(b.args));
   if (a.fp !== b.fp) o.push(b.fp ? 0xc1 : 0xc0, ...uleb(b.units));
   else if (a.units !== b.units) o.push(...(b.units <= 63 ? [0x40 | b.units] : [0xc2, ...uleb(b.units)]));
   const cur = new Map(a.regs);
@@ -308,6 +429,14 @@ export function plant(arch: Arch, fns: Fn2[], spec: string): string {
     f.rows.splice(i, 1);
     return `drop-state: ${f.name} +0x${off.toString(16)}: state ${show(arch, s)} dropped`;
   }
+  if (what === "wrong-args") {
+    const f = fns.find((x) => (!target || x.name === target || x.name === `_${target}`) && x.rows.some(([, s]) => s.args > 0));
+    if (!f) throw new Error(`plant ${spec}: no function with DW_CFA_GNU_args_size > 0`);
+    const i = f.rows.findIndex(([, s]) => s.args > 0);
+    const [off, s] = f.rows[i];
+    f.rows[i] = [off, { ...s, args: s.args + 8 }];
+    return `wrong-args: ${f.name} +0x${off.toString(16)}: ${show(arch, s)} planted as ${show(arch, f.rows[i][1])}`;
+  }
   if (what === "wrong-pad") {
     let n = 0;
     for (const f of fns) {
@@ -442,14 +571,15 @@ export function equiv(img: Img, d: Dumped[], name: (a: bigint) => string) {
     if (x.errors.length) { fails.push(`${n}: reader ${x.errors[0]}`); continue; }
     if (!fde) { fails.push(`${n}: no .eh_frame FDE at 0x${x.start.toString(16)}`); continue; }
     if (Number(fde.end - fde.start) !== x.length) { fails.push(`${n}: v2 length ${x.length}, FDE ${fde.end - fde.start}`); continue; }
-    const oracle: [number, string][] = [];
+    const parsed: [number, St][] = [];
     let bad = "";
     for (const r of fde.rows) {
       const s = parseRow(img.arch, r.text);
       if (typeof s === "string") { bad = `.eh_frame row ${r.text}`; break; }
-      oracle.push([Number(r.at - fde.start), show(img.arch, s)]);
+      parsed.push([Number(r.at - fde.start), s]);
     }
     if (bad) { fails.push(`${n}: ${bad}`); continue; }
+    const oracle: [number, string][] = withArgs(img.arch, fde, parsed).map(([o, s]) => [o, show(img.arch, s)]);
     const at = (rows: [number, string][], off: number) => { let s = "(none)"; for (const [o, t] of rows) if (o <= off) s = t; return s; };
     for (let off = 0; off < x.length; off += img.arch.unit) {
       units++;

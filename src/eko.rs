@@ -70,7 +70,7 @@ fn record_at(at: usize, chunk: usize) -> Record {
     let frame = unsafe { load::<u32>(at + 8) };
     let h = unsafe { load::<u32>(at + 12) } as usize;
     let start = (at as isize).wrapping_add(rel) as usize;
-    Record { start, end: start.wrapping_add(len), frame, handlers: if h == 0 { 0 } else { chunk + h }, program: 0, limit: 0, version: VERSION }
+    Record { start, end: start.wrapping_add(len), frame, handlers: if h == 0 { 0 } else { chunk.wrapping_add(h) }, program: 0, limit: 0, version: VERSION }
 }
 
 /// Find the record covering `pc` in the section [section, section + len).
@@ -83,9 +83,9 @@ pub fn lookup(section: usize, len: usize, pc: usize) -> Result<Option<Record>> {
 /// `lookup` for chunks of architecture code `want`. The unwinder only asks
 /// for its own; tools/eko-dump.rs reads the tables of either architecture.
 pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Option<Record>> {
-    let end = section + len;
+    let end = section.checked_add(len).ok_or(Failure::BadEkoHeader)?;
     let mut chunk = section;
-    while chunk + HEADER <= end {
+    while end.saturating_sub(chunk) >= HEADER {
         let magic = unsafe { load::<u32>(chunk) };
         if magic == 0 {
             // Linker padding between chunks is zero-filled and 4-aligned.
@@ -106,9 +106,9 @@ pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Op
             || stride == 0
             || arch_code != want
             || flags != FLAG_RUST_PERSONALITY
-            || size < HEADER + count * stride
+            || count.checked_mul(stride).and_then(|n| HEADER.checked_add(n)).is_none_or(|n| size < n)
             || !size.is_multiple_of(4)
-            || chunk + size > end
+            || chunk.checked_add(size).is_none_or(|n| n > end)
         {
             return Err(Failure::BadEkoHeader);
         }
@@ -124,6 +124,17 @@ pub fn lookup_arch(section: usize, len: usize, pc: usize, want: u8) -> Result<Op
                 && let Some(r) = search(&rec, count, pc)? {
                     if r.version == VERSION2 && ((r.handlers != 0 && r.program == 0) || r.program >= limit) {
                         return Err(Failure::BadEkoRecord);
+                    }
+                    if r.version == VERSION && r.handlers != 0 {
+                        if r.handlers < chunk || r.handlers.checked_add(4).is_none_or(|n| n > limit) {
+                            return Err(Failure::BadEkoRecord);
+                        }
+                        let rows = unsafe { load::<u32>(r.handlers) } as usize;
+                        let table_end = rows.checked_mul(ROW)
+                            .and_then(|n| r.handlers.checked_add(4)?.checked_add(n));
+                        if table_end.is_none_or(|n| n > limit) {
+                            return Err(Failure::BadEkoRecord);
+                        }
                     }
                     return Ok(Some(r));
                 }
@@ -278,13 +289,21 @@ pub fn handler(table: usize, ret: u32) -> Result<Option<(u32, u32)>> {
 ///                 data reg 0 = exception, data reg 1 = 0, pc = landing pad;
 ///                 terminate -> fatal phase 2 error.
 /// A frame interrupted by a signal has no call site, so it has no row.
+/// Installing a pad goes through Cursor::set_landing_ip_for, as
+/// _Unwind_SetIP does: a version 2 frame pops its DW_CFA_GNU_args_size.
 pub fn personality(actions: u32, exception: *mut UnwindException, cursor: &mut Cursor) -> Result<Reason> {
+    personality_for(&HOST, actions, exception, cursor)
+}
+
+/// `personality` reading version 2 programs of architecture `a`
+/// (tools/landing-sp.rs reads x86_64 tables on any host).
+pub fn personality_for(a: &Arch2, actions: u32, exception: *mut UnwindException, cursor: &mut Cursor) -> Result<Reason> {
     let table = cursor.info.eko_handlers;
     let pc = cursor.regs.pc;
     let row = if cursor.ip_before_insn || table == 0 || pc < cursor.info.start {
         None
     } else if let Kind::Eko2 { program, limit } = cursor.info.kind {
-        let (_, after) = run(&HOST, program, limit, usize::MAX)?;
+        let (_, after) = run(a, program, limit, usize::MAX)?;
         handler2(after, limit, (pc - cursor.info.start) as u32)?
     } else {
         handler(table, (pc - cursor.info.start) as u32)?
@@ -301,7 +320,7 @@ pub fn personality(actions: u32, exception: *mut UnwindException, cursor: &mut C
         Some((pad, ACTION_CLEANUP | ACTION_CATCH)) => {
             cursor.regs.set(arch::DATA_REG0 as u16, exception as usize)?;
             cursor.regs.set(arch::DATA_REG1 as u16, 0)?;
-            cursor.regs.pc = cursor.info.start + pad as usize;
+            cursor.set_landing_ip_for(a, cursor.info.start + pad as usize)?;
             abi::URC_INSTALL_CONTEXT
         }
         _ => abi::URC_FATAL_PHASE2_ERROR,
@@ -368,6 +387,9 @@ pub mod op {
     pub const FRAME: u8 = 0xc9;
     /// FP in slot 2 and the return address in slot 1; the CFA rule stays.
     pub const FRAME_REGS: u8 = 0xca;
+    /// uleb n: DW_CFA_GNU_args_size, n bytes of outgoing arguments pushed
+    /// at this offset. Part of the state; it does not change the step.
+    pub const ARGS_SIZE: u8 = 0xcb;
     /// 0xe0..=0xff: register n (DWARF 0..31) back to its entry rule.
     pub const RESTORE: u8 = 0xe0;
 }
@@ -378,17 +400,22 @@ pub const MAX_REMEMBER: usize = 4;
 /// The unwind state at one instruction: CFA = (SP or FP) + 8 * cfa_units;
 /// each saved register is at CFA - 8 * slot; every other register, and the
 /// return address when it is not saved, still holds its caller value.
+/// `args_size` is DW_CFA_GNU_args_size (bytes of pushed outgoing arguments,
+/// x86): carried as .eh_frame carries it. Stepping does not use it;
+/// installing a landing pad adds it to the stack pointer
+/// (abi::Cursor::set_landing_ip_for).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct State {
     pub cfa_fp: bool,
     pub cfa_units: u32,
+    pub args_size: u32,
     pub count: usize,
     pub saved: [(u16, u16); MAX_SAVED],
 }
 
 impl State {
     pub const fn entry(a: &Arch2) -> State {
-        let mut s = State { cfa_fp: false, cfa_units: a.entry_cfa, count: 0, saved: [(0, 0); MAX_SAVED] };
+        let mut s = State { cfa_fp: false, cfa_units: a.entry_cfa, args_size: 0, count: 0, saved: [(0, 0); MAX_SAVED] };
         if a.entry_ra_slot != 0 {
             s.saved[0] = (a.ra, a.entry_ra_slot);
             s.count = 1;
@@ -510,6 +537,10 @@ pub fn run(a: &Arch2, program: usize, limit: usize, off: usize) -> Result<(State
             }
             op::ENTRY => {
                 st = State::entry(a);
+                0
+            }
+            op::ARGS_SIZE => {
+                st.args_size = b.uleb()? as u32;
                 0
             }
             op::REMEMBER => {

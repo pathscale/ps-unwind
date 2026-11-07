@@ -1,0 +1,6 @@
+x86_64-unknown-linux-musl: 692 functions, 0 on .eh_frame only; 838 landing-pad install sites; functions with DW_CFA_GNU_args_size > 0: _RINvMNtNtCs9L9tuJX2du2_4core4cell4onceINtB3_8OnceCellINtNtB7_6result6ResultINtNtCsdvzynyQLhCX_9addr2line8function8FunctionINtNtNtCshM7xUhGyoSy_5gimli4read12endian_slice11EndianSliceNtNtB23_9endianity12LittleEndianEENtB21_5ErrorEE8try_initNCINvB2_11get_or_initNCNvMs_B1e_INtB1e_12LazyFunctionB1W_E6borrow0E0zECsiaXzZB6mOEP_3std (args_size 16 from +0x331, 4 sites); _RNCNCNvNtNtCsiaXzZB6mOEP_3std3sys9backtrace10__print_fmts_00B9_ (args_size 16 from +0x1ba, 2 sites)
+PASS L1 dwarf x86_64-unknown-linux-musl: 838 sites, 0 differ from .eh_frame
+PASS L2 v2 x86_64-unknown-linux-musl: 838 sites, 0 differ from .eh_frame
+PASS L3 coverage x86_64-unknown-linux-musl: 1 sites with args_size > 0
+    _RNCNCNvNtNtCsiaXzZB6mOEP_3std3sys9backtrace10__print_fmts_00B9_+0x1d4 pad +0x26c: want SP+16, dwarf SP+16, v2 SP+16
+landing: 3 pass, 0 fail

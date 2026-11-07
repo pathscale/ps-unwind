@@ -1,5 +1,8 @@
 # ps-unwind
 
+[![Crates.io](https://img.shields.io/crates/v/ps-unwind.svg)](https://crates.io/crates/ps-unwind)
+[![Documentation](https://docs.rs/ps-unwind/badge.svg)](https://docs.rs/ps-unwind)
+
 A `#![no_std]` stack unwinder in Rust used instead of the platform unwinder in
 Rust programs. It exports the 14
 `_Unwind_*` entry points Rust std uses plus a 5-call crash-handler API, reads Apple compact unwind, DWARF CFI
@@ -17,11 +20,11 @@ transcripts are in transcripts/.
   built once by a constructor at load and updated on `dlopen`/`dlclose`
   (src/cache.rs). On Linux an EKO version 2 table can replace `.eh_frame` and
   the LSDA of the functions it covers. For a whole std program it is 0.511
-  (aarch64 musl) and 0.539 (x86_64 musl) of their size, and for the
+  (aarch64 musl) and 0.537 (x86_64 musl) of their size, and for the
   landing-pad fixtures 0.521 and 0.573 (`bun tools/eko2.ts`, Z2 and Z1). It
-  gives the same CFA, return address and saved registers as `.eh_frame` at
-  every instruction of 784 of 784 and 686 of 688 functions (E2; the other 2
-  use `DW_CFA_GNU_args_size` and keep `.eh_frame`), so a crash walk can start
+  gives the same CFA, return address, saved registers and
+  `DW_CFA_GNU_args_size` as `.eh_frame` at every instruction of 787 of 787
+  and 692 of 692 functions (E2), so a crash walk can start
   at any instruction, mid-prologue and mid-epilogue included
   (`bun tools/signal-check.ts` SG2, FL3, run on Darwin). These tables are
   generated from each image's `.eh_frame` and LSDA by tools/eko2-gen.ts, and
@@ -112,6 +115,15 @@ cargo build                         # rlib, no panic handler
 ```
 
 ## Use
+
+As a Rust dependency (the rlib; no panic handler, for a std program):
+
+```toml
+[dependencies]
+ps-unwind = "0.1"
+```
+
+The staticlib from tools/build.sh, linked in place of the platform unwinder:
 
 ```
 rustc -C panic=unwind -C link-arg=-Wl,-force_load,$PWD/target/dist/libps_unwind.a main.rs
@@ -204,6 +216,8 @@ bun tools/eh.ts                     # landing-pad fixtures, EKO from tools/eko-g
 bun tools/eh.ts --plant wrong-pad   # planted EKO defects must fail by name (also: no-restore)
 bun tools/mixed.ts                  # EKO + DWARF 0x9b + libSystem + Rust frames, lldb bt
 bun tools/defects.ts                # planted defects must each fail a named check
+bun tools/landing.ts                # x86_64 musl, decoded: args_size popped at every landing-pad install, both readers
+bun tools/args-run.ts               # aarch64 Darwin, run: args_size fixture under system, .eh_frame and v2 paths
 bun tools/sizes.ts lib
 bun tools/check-linux-link.ts       # Linux import set by nm, musl link, glibc NEEDED
 bun tools/cache-check.ts            # image cache: constructor, dlopen, dlclose, grace period
@@ -218,6 +232,10 @@ bun tools/check-darwin-tables.ts target/darwin-tables/plain --no-eko # shipped D
 
 Everything builds with the public rustup toolchain on PATH (PS_RUSTC names
 another rustc); nothing outside this repository is read.
+
+CI and publishing are manual (`workflow_dispatch`). The version in `Cargo.toml`
+is the release: a version merged to `main` that crates.io lacks is published
+from that commit. The gate is the local run above.
 
 MIT licensed.
 

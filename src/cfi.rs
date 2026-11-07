@@ -215,11 +215,15 @@ pub struct Row {
     pub cfa: Cfa,
     pub rules: [Rule; COLUMNS],
     pub ra_signed: bool,
+    /// DW_CFA_GNU_args_size: bytes of outgoing arguments pushed at this
+    /// location. Stepping ignores it (the CFA rule already accounts for
+    /// them); installing a landing pad adds it to the stack pointer.
+    pub args_size: usize,
 }
 
 impl Row {
     const fn new() -> Row {
-        Row { cfa: Cfa::RegOffset(0, 0), rules: [Rule::Same; COLUMNS], ra_signed: false }
+        Row { cfa: Cfa::RegOffset(0, 0), rules: [Rule::Same; COLUMNS], ra_signed: false, args_size: 0 }
     }
 }
 
@@ -272,7 +276,7 @@ fn run(
         let low = op & 0x3f;
         if high == 0x40 {
             // DW_CFA_advance_loc
-            let next = loc.wrapping_add(low as usize * ca);
+            let next = loc.wrapping_add((low as usize).checked_mul(ca).ok_or(Failure::BadCieFde)?);
             if next > target {
                 return Ok(());
             }
@@ -280,7 +284,7 @@ fn run(
             continue;
         }
         if high == 0x80 {
-            let off = r.uleb()? as i64 * da;
+            let off = (r.uleb()? as i64).checked_mul(da).ok_or(Failure::BadCieFde)?;
             set_rule(row, u64::from(low), Rule::Offset(off))?;
             continue;
         }
@@ -308,7 +312,7 @@ fn run(
                     0x03 => usize::from(r.u16()?),
                     _ => r.u32()? as usize,
                 };
-                let next = loc.wrapping_add(delta * ca);
+                let next = loc.wrapping_add(delta.checked_mul(ca).ok_or(Failure::BadCieFde)?);
                 if next > target {
                     return Ok(());
                 }
@@ -316,7 +320,7 @@ fn run(
             }
             0x05 => {
                 let reg = r.uleb()?;
-                let off = r.uleb()? as i64 * da;
+                let off = (r.uleb()? as i64).checked_mul(da).ok_or(Failure::BadCieFde)?;
                 set_rule(row, reg, Rule::Offset(off))?;
             }
             0x06 => {
@@ -389,16 +393,16 @@ fn run(
             }
             0x11 => {
                 let reg = r.uleb()?;
-                let off = r.sleb()? * da;
+                let off = r.sleb()?.checked_mul(da).ok_or(Failure::BadCieFde)?;
                 set_rule(row, reg, Rule::Offset(off))?;
             }
             0x12 => {
                 let reg = r.uleb()? as u16;
-                let off = r.sleb()? * da;
+                let off = r.sleb()?.checked_mul(da).ok_or(Failure::BadCieFde)?;
                 row.cfa = Cfa::RegOffset(reg, off);
             }
             0x13 => {
-                let off = r.sleb()? * da;
+                let off = r.sleb()?.checked_mul(da).ok_or(Failure::BadCieFde)?;
                 match row.cfa {
                     Cfa::RegOffset(reg, _) => row.cfa = Cfa::RegOffset(reg, off),
                     Cfa::Expr(_) => return Err(Failure::BadCfaRule),
@@ -406,12 +410,12 @@ fn run(
             }
             0x14 => {
                 let reg = r.uleb()?;
-                let off = r.uleb()? as i64 * da;
+                let off = (r.uleb()? as i64).checked_mul(da).ok_or(Failure::BadCieFde)?;
                 set_rule(row, reg, Rule::ValOffset(off))?;
             }
             0x15 => {
                 let reg = r.uleb()?;
-                let off = r.sleb()? * da;
+                let off = r.sleb()?.checked_mul(da).ok_or(Failure::BadCieFde)?;
                 set_rule(row, reg, Rule::ValOffset(off))?;
             }
             0x2d => {
@@ -423,13 +427,13 @@ fn run(
                 }
             }
             0x2e => {
-                // DW_CFA_GNU_args_size: only meaningful for x86 stack-adjusting
-                // callers; LLVM and Cranelift do not emit it for Rust code.
-                let _ = r.uleb()?;
+                // DW_CFA_GNU_args_size. Part of the row, so remember_state and
+                // restore_state carry it, as in LLVM libunwind.
+                row.args_size = r.uleb()? as usize;
             }
             0x2f => {
                 let reg = r.uleb()?;
-                let off = -(r.uleb()? as i64) * da;
+                let off = (r.uleb()? as i64).checked_neg().and_then(|n| n.checked_mul(da)).ok_or(Failure::BadCieFde)?;
                 set_rule(row, reg, Rule::Offset(off))?;
             }
             _ => return Err(Failure::UnsupportedCfa),

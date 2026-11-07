@@ -54,11 +54,12 @@ pub struct Cursor {
     /// The pc is the faulting instruction, not a return address: the frame
     /// below was a signal trampoline.
     pub ip_before_insn: bool,
+    steps: usize,
 }
 
 impl Cursor {
     pub fn new(regs: Regs) -> Cursor {
-        Cursor { regs, info: FrameInfo::EMPTY, ip_before_insn: false }
+        Cursor { regs, info: FrameInfo::EMPTY, ip_before_insn: false, steps: 0 }
     }
 
     /// The address used to find the function: the return address minus one,
@@ -86,6 +87,9 @@ impl Cursor {
 
     /// Replace the register state with the caller state.
     pub fn step(&mut self) -> Result<()> {
+        if self.steps >= 4096 {
+            return Err(Failure::StackNotAdvancing);
+        }
         let async_frame = self.ip_before_insn;
         let next = match self.info.kind {
             #[cfg(target_vendor = "apple")]
@@ -108,8 +112,38 @@ impl Cursor {
         if !self.info.signal && (new_sp < old_sp || (new_sp == old_sp && next.pc == self.regs.pc)) {
             return Err(Failure::StackNotAdvancing);
         }
+        self.steps += 1;
         self.ip_before_insn = self.info.signal;
         self.regs = next;
+        Ok(())
+    }
+
+    /// DW_CFA_GNU_args_size in effect at the lookup pc of this frame: the
+    /// bytes of outgoing arguments the caller pushed for the call and pops
+    /// after it returns. 0 for record kinds that cannot express it (compact,
+    /// EKO version 1, sigreturn). `a` is the version 2 architecture,
+    /// eko::HOST for the unwinder itself.
+    pub fn args_size_for(&self, a: &eko::Arch2) -> Result<usize> {
+        Ok(match self.info.kind {
+            Kind::Dwarf(fde) => crate::cfi::row_for(&fde, self.lookup_pc())?.args_size,
+            Kind::Eko2 { program, limit } => eko::run(a, program, limit, self.lookup_pc() - self.info.start)?.0.args_size as usize,
+            _ => 0,
+        })
+    }
+
+    /// Resume this frame at landing pad `pad` (_Unwind_SetIP, and the EKO
+    /// personality for EKO frames). A landing pad expects the
+    /// stack as it is after the call returned, so the pushed arguments the
+    /// call site recorded with DW_CFA_GNU_args_size are popped: the stack
+    /// pointer moves up by args_size, read at the call site before the pc
+    /// changes (LLVM libunwind, unw_set_reg of the ip; libgcc,
+    /// uw_install_context). Applies on every architecture when nonzero.
+    pub fn set_landing_ip_for(&mut self, a: &eko::Arch2, pad: usize) -> Result<()> {
+        let n = self.args_size_for(a)?;
+        if n != 0 {
+            self.regs.set_sp(self.regs.sp() + n);
+        }
+        self.regs.pc = pad;
         Ok(())
     }
 
@@ -287,7 +321,7 @@ pub unsafe extern "C" fn _Unwind_GetCFA(c: *mut Cursor) -> usize {
     #[cfg(not(target_vendor = "apple"))]
     {
         let c = unsafe { &*c };
-        let mut copy = Cursor { regs: c.regs, info: c.info, ip_before_insn: c.ip_before_insn };
+        let mut copy = Cursor { regs: c.regs, info: c.info, ip_before_insn: c.ip_before_insn, steps: c.steps };
         match copy.step() {
             Ok(()) => copy.regs.sp(),
             Err(_) => 0,
@@ -313,9 +347,13 @@ pub unsafe extern "C" fn _Unwind_SetGR(c: *mut Cursor, index: c_int, value: usiz
     }
 }
 
+/// Called by a personality routine in phase 2 to install a landing pad.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Unwind_SetIP(c: *mut Cursor, value: usize) {
-    unsafe { (*c).regs.pc = value };
+    if let Err(e) = unsafe { (*c).set_landing_ip_for(&eko::HOST, value) } {
+        failure::report(e, value);
+        failure::fatal(b"ps-unwind: _Unwind_SetIP could not read args_size at the call site\n");
+    }
 }
 
 /// Start of the function containing `pc`, or null. Rust std imports this on

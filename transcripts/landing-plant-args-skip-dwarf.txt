@@ -1,0 +1,25 @@
+== defect args-skip-dwarf: landing-pad install skips DW_CFA_GNU_args_size for frames read from .eh_frame (src/cfi.rs path)
+diff --git a/src/abi.rs b/src/abi.rs
+index 32b9758..bf5c428 100644
+--- a/src/abi.rs
++++ b/src/abi.rs
+@@ -120,7 +120,7 @@ impl Cursor {
+     /// eko::HOST for the unwinder itself.
+     pub fn args_size_for(&self, a: &eko::Arch2) -> Result<usize> {
+         Ok(match self.info.kind {
+-            Kind::Dwarf(fde) => crate::cfi::row_for(&fde, self.lookup_pc())?.args_size,
++            Kind::Dwarf(_) => 0,
+             Kind::Eko2 { program, limit } => eko::run(a, program, limit, self.lookup_pc() - self.info.start)?.0.args_size as usize,
+             _ => 0,
+         })
+
+-- tools/landing.ts (exit 1)
+FAIL L1 dwarf x86_64-unknown-linux-musl: 838 sites, 1 differ from .eh_frame
+    _RNCNCNvNtNtCsiaXzZB6mOEP_3std3sys9backtrace10__print_fmts_00B9_+0x1d4 (pad +0x26c): installed SP at call + 0, want + 16
+    _RNCNCNvNtNtCsiaXzZB6mOEP_3std3sys9backtrace10__print_fmts_00B9_+0x1d4 pad +0x26c: want SP+16, dwarf SP+0, v2 SP+16
+landing: 2 pass, 1 fail; failed: L1 dwarf x86_64-unknown-linux-musl
+-- tools/args-run.ts (exit 1)
+FAIL R2 ps-dwarf: exit 0, printed "caught=true pad_sp=fp-32"; want "caught=true pad_sp=fp+0"
+args-run: 4 pass, 1 fail; failed: R2 ps-dwarf
+-- reverted by writing back the 16612 saved bytes of src/abi.rs (identical: true); verifiers after revert: PASS
+RESULT args-skip-dwarf: caught, clean after revert

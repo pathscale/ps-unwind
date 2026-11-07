@@ -1,0 +1,6 @@
+PASS A1 dwarf-fde: _ax_args compact mode 3 (3 = DWARF), FDE found, DW_CFA_GNU_args_size: 32 at +0xc, 0 at +0x1c
+PASS A2 v2-table: 1 v2 records; _ax_args: +0x0 CFA=reg31+0 | +0x4 CFA=reg31+16: reg29=[CFA-16], reg30=[CFA-8] | +0x8 CFA=reg29+16: reg29=[CFA-16], reg30=[CFA-8] | +0xc CFA=reg29+16: reg29=[CFA-16], reg30=[CFA-8] args=32 | +0x1c CFA=reg29+16: reg29=[CFA-16], reg30=[CFA-8] | +0x34 CFA=reg31+0
+PASS R1 system: exit 0, printed "caught=true pad_sp=fp+0"; want "caught=true pad_sp=fp+0"
+PASS R2 ps-dwarf: exit 0, printed "caught=true pad_sp=fp+0"; want "caught=true pad_sp=fp+0"
+PASS R3 ps-v2: exit 0, printed "caught=true pad_sp=fp+0"; want "caught=true pad_sp=fp+0"
+args-run: 5 pass, 0 fail

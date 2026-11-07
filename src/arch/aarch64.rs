@@ -253,6 +253,8 @@ impl Regs {
         use crate::mem::load;
         pc != 0
             && pc.is_multiple_of(4)
+            && crate::find::is_code(pc)
+            && pc.checked_add(7).is_some_and(crate::find::is_code)
             && unsafe { load::<u32>(pc) } == 0xd280_1168
             && unsafe { load::<u32>(pc + 4) } == 0xd400_0001
     }

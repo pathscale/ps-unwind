@@ -10,8 +10,14 @@ behind each number:
 
 ps-unwind provides the `_Unwind_*` boundary that Rust `panic_unwind`, the
 personality routine and `std::backtrace` call, for Rust programs, including
-ones whose compiler emits the EKO table (docs/FORMAT.md). It is `#![no_std]`, allocates nothing, and reaches
-the platform only through `libc`.
+ones whose compiler emits the EKO table (docs/FORMAT.md). It is `#![no_std]`
+and reaches the platform only through `libc`. Its unwind and walk code
+allocates nothing; the image cache writers do: the constructor that builds
+the cache at load, the dyld add/remove-image callbacks on Darwin
+(`dlopen`/`dlclose`), and on Linux the refresh that a lookup miss triggers
+outside signal context, which can happen during an unwind. Between
+`ps_unwind_signal_enter` and `ps_unwind_signal_leave` a walk never runs a
+writer (a miss is `SignalContextMiss`), so a crash walk allocates nothing ("Cost on the unwind path", "Image cache").
 
 ## Exports
 
@@ -67,6 +73,14 @@ two (cleanup) on the real state. `_Unwind_Resume` runs phase two only, using
 equals `private_2` and stops with `HandlerFrameMissed` if the personality then
 asks to continue. A personality result outside the protocol is
 `BadPersonalityResult`.
+
+Installing a landing pad (`_Unwind_SetIP` from a personality, or the EKO
+personality itself) goes through `Cursor::set_landing_ip_for`: the stack
+pointer moves up by the `DW_CFA_GNU_args_size` in effect at the call, read
+from the frame's own table at its lookup pc before the pc changes, as
+libgcc and LLVM libunwind do. Stepping never applies it. The `.eh_frame`
+reader and the version 2 reader both provide it; other record kinds give 0
+(docs/FORMAT.md, State).
 
 Phase one is kept on purpose. Without it the cleanups of every frame would
 run before the unwinder learned that nothing catches, which changes drop
